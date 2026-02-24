@@ -2,19 +2,22 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Pro Monitor - Audio & PiP</title>
+    <title>Pro Monitor - Full Control</title>
     <style>
         body { font-family: sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
-        .card { background: #1e1e1e; padding: 25px; border-radius: 15px; width: 400px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; }
+        .card { background: #1e1e1e; padding: 25px; border-radius: 15px; width: 450px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
         input, select { width: 100%; padding: 8px; margin: 8px 0; border-radius: 5px; border: none; background: #333; color: white; }
         button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 5px; border: none; cursor: pointer; font-weight: bold; }
         .btn-play { background: #bb86fc; color: black; }
-        .btn-start { background: #03dac6; color: black; }
+        .btn-start { background: #03dac6; color: black; margin-top: 15px; }
+        .btn-test { background: #444; color: #03dac6; width: auto; padding: 5px 10px; font-size: 11px; float: right; }
         
-        .settings-grid { background: #252525; padding: 15px; border-radius: 10px; margin-top: 15px; border: 1px solid #444; text-align: left; }
-        label { font-size: 11px; color: #aaa; text-transform: uppercase; display: block; margin-top: 10px; }
-        
-        /* PiP Content */
+        .player-controls { background: #252525; padding: 15px; border-radius: 10px; margin-top: 15px; border: 1px solid #444; }
+        .time-row { display: flex; justify-content: space-between; font-family: monospace; font-size: 12px; color: #aaa; margin-bottom: 5px; }
+        label { font-size: 10px; color: #aaa; text-transform: uppercase; display: block; margin-top: 10px; }
+        input[type="range"] { accent-color: #03dac6; cursor: pointer; }
+
+        /* PiP Styling */
         #alert-box { width: 100%; height: 100%; background: #ffffff; transition: background 0.1s; }
         .trigger-active { background: #ff0000 !important; }
     </style>
@@ -22,36 +25,46 @@
 <body>
 
 <div class="card">
-    <h2>Tab Monitor Pro</h2>
+    <h2 style="margin-top:0;">Tab Monitor Pro</h2>
     
-    <label>Music Stream URL:</label>
-    <input type="text" id="audioUrl" placeholder="Paste MP3/Stream Link...">
+    <label>Audio Stream Link</label>
+    <input type="text" id="audioUrl" placeholder="Paste link here...">
     <button class="btn-play" onclick="loadMusic()">Load & Play Music</button>
 
-    <div class="settings-grid">
-        <label>Master Volume</label>
-        <input type="range" id="musicVol" min="0" max="1" step="0.05" value="0.5">
+    <div class="player-controls">
+        <div class="time-row"><span id="currentTime">00:00:00</span><span id="totalTime">00:00:00</span></div>
+        <input type="range" id="seekSlider" min="0" max="100" value="0">
         
-        <label>Alert Sound</label>
-        <select id="soundType">
-            <option value="double">Double Beep</option>
-            <option value="chime">Modern Chime</option>
-            <option value="urgent">Classic Alarm</option>
-            <option value="piercing">The Piercer</option>
-        </select>
-
-        <label>Duck Music To:</label>
-        <select id="duckVol">
-            <option value="0.2">20% Volume</option>
-            <option value="0.05">5% Volume</option>
-            <option value="0" selected>Mute Music</option>
-        </select>
+        <label>Master Music Volume</label>
+        <input type="range" id="musicVol" min="0" max="1" step="0.05" value="0.4">
+        
+        <div style="display:flex; justify-content: space-between; align-items: flex-end;">
+            <div style="width: 70%;">
+                <label>Dissolve Speed: <span id="fadeValue" style="color:#03dac6;">1.2s</span></label>
+                <input type="range" id="fadeSpeed" min="0" max="3" step="0.1" value="1.2" oninput="document.getElementById('fadeValue').innerText = this.value + 's'">
+            </div>
+            <button class="btn-test" onclick="playAlertTone()">TEST SOUND</button>
+        </div>
     </div>
 
-    <button class="btn-start" onclick="startCapture()">START MONITORING</button>
-    <button id="pipBtn" style="display:none; background:#bb86fc;" onclick="openPip()">OPEN FLOATING WINDOW</button>
+    <label>Alert Settings</label>
+    <select id="soundType">
+        <option value="double">Double Beep</option>
+        <option value="chime">Modern Chime</option>
+        <option value="urgent">Classic Alarm</option>
+        <option value="piercing">The Piercer</option>
+    </select>
+
+    <select id="duckVol">
+        <option value="0.5">Duck to 50%</option>
+        <option value="0.2">Duck to 20%</option>
+        <option value="0" selected>Mute Music on Alert</option>
+    </select>
+
+    <button class="btn-start" onclick="startCapture()">1. SELECT TAB & START</button>
+    <button id="pipBtn" style="display:none; background:#bb86fc; color:black;" onclick="openPip()">2. OPEN FLOATING WINDOW</button>
     
-    <div id="status" style="margin-top:15px; font-size:12px; color:#03dac6;">System Ready</div>
+    <div id="status" style="margin-top:15px; font-size:12px; color:#03dac6; text-align:center;">System Ready</div>
 </div>
 
 <audio id="player" loop crossorigin="anonymous"></audio>
@@ -61,14 +74,25 @@
     const audio = document.getElementById('player');
     const alertBox = document.getElementById('alert-box');
     const statusText = document.getElementById('status');
-    const pipBtn = document.getElementById('pipBtn');
+    const seekSlider = document.getElementById('seekSlider');
+    const currentTimeSpan = document.getElementById('currentTime');
+    const totalTimeSpan = document.getElementById('totalTime');
     
     let sourceStream, pipWindow, fadeInterval;
     let canvas = document.createElement("canvas");
     let ctx = canvas.getContext("2d", {willReadFrequently: true});
     canvas.width = 100; canvas.height = 100;
 
-    // --- Audio Logic ---
+    // --- Time Formatting ---
+    function formatTime(seconds) {
+        if (isNaN(seconds) || seconds === Infinity) return "00:00:00";
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = Math.floor(seconds % 60);
+        return [h, m, s].map(v => v.toString().padStart(2, '0')).join(':');
+    }
+
+    // --- Audio Player Logic ---
     function loadMusic() {
         const url = document.getElementById('audioUrl').value;
         if(!url) return;
@@ -77,16 +101,34 @@
         audio.play();
     }
 
+    audio.ontimeupdate = () => {
+        if (!isNaN(audio.duration)) {
+            seekSlider.value = (audio.currentTime / audio.duration) * 100;
+            currentTimeSpan.innerText = formatTime(audio.currentTime);
+        }
+    };
+
+    audio.onloadedmetadata = () => { totalTimeSpan.innerText = formatTime(audio.duration); };
+
+    seekSlider.oninput = () => {
+        if (!isNaN(audio.duration)) audio.currentTime = (seekSlider.value / 100) * audio.duration;
+    };
+
     function fadeVolumeTo(target) {
         clearInterval(fadeInterval);
+        const duration = parseFloat(document.getElementById('fadeSpeed').value);
+        if (duration <= 0) { audio.volume = target; return; }
+
         const startVol = audio.volume;
-        const steps = 20;
+        const steps = 30;
+        const intervalTime = (duration * 1000) / steps;
         let currentStep = 0;
+
         fadeInterval = setInterval(() => {
             currentStep++;
             audio.volume = startVol + ((target - startVol) * (currentStep / steps));
-            if (currentStep >= steps) clearInterval(fadeInterval);
-        }, 50);
+            if (currentStep >= steps) { audio.volume = target; clearInterval(fadeInterval); }
+        }, intervalTime);
     }
 
     function playAlertTone() {
@@ -103,19 +145,21 @@
             osc.start(ctxA.currentTime + start); osc.stop(ctxA.currentTime + start + duration);
         };
 
-        if(mode === 'double') { playTone(1000, 0, 0.2); playTone(1000, 0.3, 0.2); }
-        else if(mode === 'chime') { playTone(880, 0, 0.4, 'triangle'); playTone(1320, 0.1, 0.4, 'triangle'); }
-        else if(mode === 'urgent') { [800, 800, 800].forEach((f, i) => playTone(f, i*0.2, 0.15, 'square')); }
-        else if(mode === 'piercing') { playTone(2000, 0, 0.8, 'square'); }
+        switch(mode) {
+            case 'double': playTone(1000, 0, 0.2); playTone(1000, 0.3, 0.2); break;
+            case 'chime': playTone(880, 0, 0.4, 'triangle'); playTone(1320, 0.1, 0.4, 'triangle'); break;
+            case 'urgent': [800, 800, 800].forEach((f, i) => playTone(f, i*0.2, 0.15, 'square')); break;
+            case 'piercing': playTone(2000, 0, 0.8, 'square'); break;
+        }
     }
 
-    // --- Capture & Analysis ---
+    // --- Monitoring & PiP ---
     async function startCapture() {
         if (Notification.permission !== "granted") await Notification.requestPermission();
         try {
             sourceStream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: "browser", frameRate: 1 }});
             statusText.innerText = "Monitoring Active";
-            pipBtn.style.display = "block";
+            document.getElementById('pipBtn').style.display = "block";
             startAnalysis();
         } catch (err) { console.error(err); }
     }
