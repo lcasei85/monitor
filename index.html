@@ -2,14 +2,19 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Minimal PiP Monitor + Alerts</title>
+    <title>Pro Monitor - Audio & PiP</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f4f9; color: #333; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .card { background: white; padding: 30px; border-radius: 16px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.05); width: 280px; }
-        button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; }
-        .btn-capture { background: #000; color: #fff; }
-        .btn-pip { background: #0071e3; color: white; display: none; }
-        #status { font-size: 12px; margin-top: 10px; color: #888; }
+        body { font-family: sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        .card { background: #1e1e1e; padding: 25px; border-radius: 15px; width: 400px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; }
+        input, select { width: 100%; padding: 8px; margin: 8px 0; border-radius: 5px; border: none; background: #333; color: white; }
+        button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 5px; border: none; cursor: pointer; font-weight: bold; }
+        .btn-play { background: #bb86fc; color: black; }
+        .btn-start { background: #03dac6; color: black; }
+        
+        .settings-grid { background: #252525; padding: 15px; border-radius: 10px; margin-top: 15px; border: 1px solid #444; text-align: left; }
+        label { font-size: 11px; color: #aaa; text-transform: uppercase; display: block; margin-top: 10px; }
+        
+        /* PiP Content */
         #alert-box { width: 100%; height: 100%; background: #ffffff; transition: background 0.1s; }
         .trigger-active { background: #ff0000 !important; }
     </style>
@@ -17,104 +22,144 @@
 <body>
 
 <div class="card">
-    <h3>Monitor</h3>
-    <button class="btn-capture" onclick="startCapture()">1. Select Tab</button>
-    <div id="status">Ready</div>
-    <button class="btn-pip" id="pipBtn" onclick="openPip()">2. Pop Out</button>
+    <h2>Tab Monitor Pro</h2>
+    
+    <label>Music Stream URL:</label>
+    <input type="text" id="audioUrl" placeholder="Paste MP3/Stream Link...">
+    <button class="btn-play" onclick="loadMusic()">Load & Play Music</button>
 
-    <div id="alert-box"></div>
+    <div class="settings-grid">
+        <label>Master Volume</label>
+        <input type="range" id="musicVol" min="0" max="1" step="0.05" value="0.5">
+        
+        <label>Alert Sound</label>
+        <select id="soundType">
+            <option value="double">Double Beep</option>
+            <option value="chime">Modern Chime</option>
+            <option value="urgent">Classic Alarm</option>
+            <option value="piercing">The Piercer</option>
+        </select>
+
+        <label>Duck Music To:</label>
+        <select id="duckVol">
+            <option value="0.2">20% Volume</option>
+            <option value="0.05">5% Volume</option>
+            <option value="0" selected>Mute Music</option>
+        </select>
+    </div>
+
+    <button class="btn-start" onclick="startCapture()">START MONITORING</button>
+    <button id="pipBtn" style="display:none; background:#bb86fc;" onclick="openPip()">OPEN FLOATING WINDOW</button>
+    
+    <div id="status" style="margin-top:15px; font-size:12px; color:#03dac6;">System Ready</div>
 </div>
 
+<audio id="player" loop crossorigin="anonymous"></audio>
+<div style="display:none;"><div id="alert-box"></div></div>
+
 <script>
-    let sourceStream;
-    let pipWindow = null;
+    const audio = document.getElementById('player');
+    const alertBox = document.getElementById('alert-box');
+    const statusText = document.getElementById('status');
+    const pipBtn = document.getElementById('pipBtn');
+    
+    let sourceStream, pipWindow, fadeInterval;
     let canvas = document.createElement("canvas");
     let ctx = canvas.getContext("2d", {willReadFrequently: true});
-    let lastNotificationTime = 0; // To prevent spamming notifications
+    canvas.width = 100; canvas.height = 100;
 
-    const alertBox = document.getElementById('alert-box');
-    const pipBtn = document.getElementById('pipBtn');
-    const statusText = document.getElementById('status');
+    // --- Audio Logic ---
+    function loadMusic() {
+        const url = document.getElementById('audioUrl').value;
+        if(!url) return;
+        audio.src = url;
+        audio.volume = document.getElementById('musicVol').value;
+        audio.play();
+    }
 
-    canvas.width = 100;
-    canvas.height = 100;
+    function fadeVolumeTo(target) {
+        clearInterval(fadeInterval);
+        const startVol = audio.volume;
+        const steps = 20;
+        let currentStep = 0;
+        fadeInterval = setInterval(() => {
+            currentStep++;
+            audio.volume = startVol + ((target - startVol) * (currentStep / steps));
+            if (currentStep >= steps) clearInterval(fadeInterval);
+        }, 50);
+    }
 
+    function playAlertTone() {
+        const ctxA = new (window.AudioContext || window.webkitAudioContext)();
+        const mode = document.getElementById('soundType').value;
+        const playTone = (freq, start, duration, type='sine') => {
+            const osc = ctxA.createOscillator();
+            const g = ctxA.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, ctxA.currentTime + start);
+            g.gain.setValueAtTime(0.5, ctxA.currentTime + start);
+            g.gain.exponentialRampToValueAtTime(0.0001, ctxA.currentTime + start + duration);
+            osc.connect(g); g.connect(ctxA.destination);
+            osc.start(ctxA.currentTime + start); osc.stop(ctxA.currentTime + start + duration);
+        };
+
+        if(mode === 'double') { playTone(1000, 0, 0.2); playTone(1000, 0.3, 0.2); }
+        else if(mode === 'chime') { playTone(880, 0, 0.4, 'triangle'); playTone(1320, 0.1, 0.4, 'triangle'); }
+        else if(mode === 'urgent') { [800, 800, 800].forEach((f, i) => playTone(f, i*0.2, 0.15, 'square')); }
+        else if(mode === 'piercing') { playTone(2000, 0, 0.8, 'square'); }
+    }
+
+    // --- Capture & Analysis ---
     async function startCapture() {
-        // Request Notification permission immediately
-        if (Notification.permission !== "granted") {
-            await Notification.requestPermission();
-        }
-
+        if (Notification.permission !== "granted") await Notification.requestPermission();
         try {
-            sourceStream = await navigator.mediaDevices.getDisplayMedia({
-                video: { displaySurface: "browser", frameRate: 1 },
-                audio: false
-            });
-            statusText.innerText = "Target Set";
+            sourceStream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: "browser", frameRate: 1 }});
+            statusText.innerText = "Monitoring Active";
             pipBtn.style.display = "block";
             startAnalysis();
         } catch (err) { console.error(err); }
     }
 
     async function openPip() {
-        pipWindow = await window.documentPictureInPicture.requestWindow({
-            width: 150,
-            height: 150,
-        });
-
+        pipWindow = await window.documentPictureInPicture.requestWindow({ width: 150, height: 150 });
         const style = pipWindow.document.createElement('style');
-        style.textContent = `
-            body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #fff; }
-            #alert-box { width: 100vw; height: 100vh; transition: background 0.1s; }
-            .trigger-active { background: #ff0000 !important; }
-        `;
+        style.textContent = `body,html{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#fff;} #alert-box{width:100vw;height:100vh;} .trigger-active{background:#ff0000 !important;}`;
         pipWindow.document.head.append(style);
         pipWindow.document.body.append(alertBox);
-
-        pipWindow.addEventListener("pagehide", () => {
-            document.body.append(alertBox);
-            pipWindow = null;
-        });
-    }
-
-    function sendNotification() {
-        const now = Date.now();
-        // Only send a notification once every 30 seconds to avoid spam
-        if (now - lastNotificationTime > 30000) {
-            new Notification("Tab Monitor Alert", {
-                body: "Activity detected in monitored tab!",
-                silent: false
-            });
-            lastNotificationTime = now;
-        }
     }
 
     function startAnalysis() {
         const v = document.createElement("video");
-        v.srcObject = sourceStream;
-        v.muted = true;
-        v.play();
+        v.srcObject = sourceStream; v.play();
+        let isAlerting = false;
 
         setInterval(() => {
             if (v.readyState >= 2) {
                 ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
                 const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-                
                 let total = 0, varSum = 0;
-                for (let i = 0; i < data.length; i += 4) {
-                    total += (data[i] + data[i+1] + data[i+2]) / 3;
-                }
+                for (let i = 0; i < data.length; i += 4) total += (data[i] + data[i+1] + data[i+2]) / 3;
                 const avg = total / (data.length / 4);
-                for (let i = 0; i < data.length; i += 4) {
-                    varSum += Math.pow(((data[i] + data[i+1] + data[i+2]) / 3) - avg, 2);
-                }
+                for (let i = 0; i < data.length; i += 4) varSum += Math.pow(((data[i] + data[i+1] + data[i+2]) / 3) - avg, 2);
                 const variance = varSum / (data.length / 4);
 
+                const baseVol = parseFloat(document.getElementById('musicVol').value);
+                const duckTarget = baseVol * parseFloat(document.getElementById('duckVol').value);
+
                 if (variance > 250) {
-                    alertBox.classList.add('trigger-active');
-                    sendNotification(); // Trigger browser notification
+                    if (!isAlerting) {
+                        alertBox.classList.add('trigger-active');
+                        playAlertTone();
+                        fadeVolumeTo(duckTarget);
+                        new Notification("Activity Detected!");
+                        isAlerting = true;
+                    }
                 } else {
-                    alertBox.classList.remove('trigger-active');
+                    if (isAlerting) {
+                        alertBox.classList.remove('trigger-active');
+                        fadeVolumeTo(baseVol);
+                        isAlerting = false;
+                    }
                 }
             }
         }, 1000);
