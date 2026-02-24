@@ -101,7 +101,7 @@
                 const variance = varSum / (data.length / 4);
 
                 // High variance = Visual change/High detail
-                if (variance > 250) {
+                if (variance > 150) {
                     alertBox.classList.add('trigger-active');
                 } else {
                     alertBox.classList.remove('trigger-active');
