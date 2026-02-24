@@ -2,69 +2,48 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Tab Monitor - Native PiP</title>
+    <title>Minimal PiP Monitor</title>
     <style>
-        body { font-family: sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
-        .card { background: #1e1e1e; padding: 20px; border-radius: 12px; width: 320px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
-        button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 5px; border: none; cursor: pointer; font-weight: bold; }
-        .btn-capture { background: #03dac6; color: black; }
-        .btn-pip { background: #bb86fc; color: black; display: none; }
-        #status-indicator { margin-top: 15px; font-size: 14px; color: #03dac6; }
-        p { font-size: 11px; color: #aaa; margin-top: 10px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f4f9; color: #333; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: white; padding: 30px; border-radius: 16px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.05); width: 280px; }
+        h3 { margin-top: 0; font-weight: 600; }
+        button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; transition: opacity 0.2s; }
+        .btn-capture { background: #000; color: #fff; }
+        .btn-pip { background: #0071e3; color: white; display: none; }
+        #status { font-size: 12px; margin-top: 10px; color: #888; }
         
-        /* The element that will be moved to the PiP window */
-        #pip-content {
-            padding: 20px;
-            background: #1e1e1e;
-            color: white;
-            text-align: center;
-            border-radius: 10px;
-            width: 200px;
+        /* The PiP Box - Hidden on main page */
+        #alert-box {
+            width: 100%;
+            height: 100%;
+            background: #ffffff; /* Bright Background */
+            transition: background 0.1s;
         }
-        #alert-bar {
-            height: 50px;
-            background: #333;
-            margin-top: 10px;
-            border-radius: 5px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.3s;
-        }
-        .warning { background: #ff4444 !important; font-weight: bold; }
+        .trigger-active { background: #ff0000 !important; }
     </style>
 </head>
 <body>
 
 <div class="card">
-    <h3>Tab Monitor</h3>
-    <p>Select a tab to watch, then pop out the alert.</p>
-    
-    <button class="btn-capture" id="captureBtn" onclick="startCapture()">1. SELECT TAB</button>
-    <div id="status-indicator">Waiting for source...</div>
-    
-    <button class="btn-pip" id="pipBtn" onclick="openPip()">2. OPEN FLOATING ALERT</button>
+    <h3>Monitor</h3>
+    <button class="btn-capture" onclick="startCapture()">1. Select Tab</button>
+    <div id="status">Ready</div>
+    <button class="btn-pip" id="pipBtn" onclick="openPip()">2. Pop Out</button>
 
-    <div style="display:none;">
-        <div id="pip-content">
-            <div style="font-size: 12px;">MONITOR STATUS</div>
-            <div id="alert-bar">ACTIVE</div>
-        </div>
-    </div>
+    <div id="alert-box"></div>
 </div>
 
 <script>
     let sourceStream;
     let pipWindow = null;
     let canvas = document.createElement("canvas");
-    let ctx = canvas.getContext("2d", { willReadFrequently: true });
-    
-    const alertBar = document.getElementById('alert-bar');
-    const statusText = document.getElementById('status-indicator');
+    let ctx = canvas.getContext("2d", {willReadFrequently: true});
+    const alertBox = document.getElementById('alert-box');
     const pipBtn = document.getElementById('pipBtn');
+    const statusText = document.getElementById('status');
 
-    canvas.width = 160;
-    canvas.height = 120;
+    canvas.width = 100;
+    canvas.height = 100;
 
     async function startCapture() {
         try {
@@ -72,75 +51,63 @@
                 video: { displaySurface: "browser", frameRate: 1 },
                 audio: false
             });
-            
-            statusText.innerText = "Monitoring Active";
+            statusText.innerText = "Target Set";
             pipBtn.style.display = "block";
-            
             startAnalysis();
-        } catch (err) {
-            console.error("Capture failed: ", err);
-        }
+        } catch (err) { console.error(err); }
     }
 
     async function openPip() {
-        if (!('documentPictureInPicture' in window)) {
-            alert("Document PiP not supported in this browser.");
-            return;
-        }
-
         pipWindow = await window.documentPictureInPicture.requestWindow({
-            width: 250,
+            width: 150,
             height: 150,
         });
 
-        // Copy styles to the new window
-        const style = document.createElement('style');
+        // Minimalist CSS for the PiP window
+        const style = pipWindow.document.createElement('style');
         style.textContent = `
-            body { background: #121212; color: white; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
-            #alert-bar { height: 80vh; width: 80vw; background: #333; border-radius: 10px; display: flex; align-items: center; justify-content: center; transition: background 0.2s; font-size: 20px; }
-            .warning { background: #ff4444 !important; }
+            body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #fff; }
+            #alert-box { width: 100vw; height: 100vh; transition: background 0.1s; }
+            .trigger-active { background: #ff0000 !important; }
         `;
         pipWindow.document.head.append(style);
-        pipWindow.document.body.append(document.getElementById('pip-content'));
+        pipWindow.document.body.append(alertBox);
 
         pipWindow.addEventListener("pagehide", () => {
-            document.body.append(document.getElementById('pip-content'));
+            document.body.append(alertBox);
             pipWindow = null;
         });
     }
 
     function startAnalysis() {
-        const tempVideo = document.createElement("video");
-        tempVideo.srcObject = sourceStream;
-        tempVideo.muted = true;
-        tempVideo.play();
+        const v = document.createElement("video");
+        v.srcObject = sourceStream;
+        v.muted = true;
+        v.play();
 
         setInterval(() => {
-            if (tempVideo.readyState >= 2) {
-                ctx.drawImage(tempVideo, 0, 0, canvas.width, canvas.height);
-                const frame = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-
-                let total = 0;
-                let variance = 0;
-                for (let i = 0; i < frame.length; i += 4) {
-                    total += (frame[i] + frame[i+1] + frame[i+2]) / 3;
+            if (v.readyState >= 2) {
+                ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+                const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                
+                let total = 0, varSum = 0;
+                for (let i = 0; i < data.length; i += 4) {
+                    total += (data[i] + data[i+1] + data[i+2]) / 3;
                 }
-                const avg = total / (frame.length / 4);
-                for (let i = 0; i < frame.length; i += 4) {
-                    variance += Math.pow(((frame[i] + frame[i+1] + frame[i+2]) / 3) - avg, 2);
+                const avg = total / (data.length / 4);
+                for (let i = 0; i < data.length; i += 4) {
+                    varSum += Math.pow(((data[i] + data[i+1] + data[i+2]) / 3) - avg, 2);
                 }
-                variance /= (frame.length / 4);
+                const variance = varSum / (data.length / 4);
 
-                // If variance is high (content changed/is complex), turn red
-                if (variance > 200) {
-                    alertBar.classList.add('warning');
-                    alertBar.innerText = "ALERT";
+                // High variance = Visual change/High detail
+                if (variance > 250) {
+                    alertBox.classList.add('trigger-active');
                 } else {
-                    alertBar.classList.remove('warning');
-                    alertBar.innerText = "ACTIVE";
+                    alertBox.classList.remove('trigger-active');
                 }
             }
-        }, 2000); // Check every 2 seconds
+        }, 1000); // Check every second
     }
 </script>
 
