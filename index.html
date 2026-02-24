@@ -2,13 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Pro Monitor - Full Control</title>
+    <title>Pro Monitor - Final Fix</title>
     <style>
         body { font-family: sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
         .card { background: #1e1e1e; padding: 25px; border-radius: 15px; width: 450px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        input, select { width: 100%; padding: 8px; margin: 8px 0; border-radius: 5px; border: none; background: #333; color: white; }
+        input, select { width: 100%; padding: 8px; margin: 8px 0; border-radius: 5px; border: none; background: #333; color: white; box-sizing: border-box; }
         button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 5px; border: none; cursor: pointer; font-weight: bold; }
         .btn-play { background: #bb86fc; color: black; }
+        .btn-pause { background: #444; color: white; margin-top: 5px; }
         .btn-start { background: #03dac6; color: black; margin-top: 15px; }
         .btn-test { background: #444; color: #03dac6; width: auto; padding: 5px 10px; font-size: 11px; float: right; }
         
@@ -17,7 +18,6 @@
         label { font-size: 10px; color: #aaa; text-transform: uppercase; display: block; margin-top: 10px; }
         input[type="range"] { accent-color: #03dac6; cursor: pointer; }
 
-        /* PiP Styling */
         #alert-box { width: 100%; height: 100%; background: #ffffff; transition: background 0.1s; }
         .trigger-active { background: #ff0000 !important; }
     </style>
@@ -30,13 +30,14 @@
     <label>Audio Stream Link</label>
     <input type="text" id="audioUrl" placeholder="Paste link here...">
     <button class="btn-play" onclick="loadMusic()">Load & Play Music</button>
+    <button class="btn-pause" id="pauseBtn" onclick="togglePause()">Pause</button>
 
     <div class="player-controls">
         <div class="time-row"><span id="currentTime">00:00:00</span><span id="totalTime">00:00:00</span></div>
         <input type="range" id="seekSlider" min="0" max="100" value="0">
         
         <label>Master Music Volume</label>
-        <input type="range" id="musicVol" min="0" max="1" step="0.05" value="0.4">
+        <input type="range" id="musicVol" min="0" max="1" step="0.05" value="0.4" oninput="updateMasterVolume()">
         
         <div style="display:flex; justify-content: space-between; align-items: flex-end;">
             <div style="width: 70%;">
@@ -77,13 +78,14 @@
     const seekSlider = document.getElementById('seekSlider');
     const currentTimeSpan = document.getElementById('currentTime');
     const totalTimeSpan = document.getElementById('totalTime');
+    const pauseBtn = document.getElementById('pauseBtn');
     
     let sourceStream, pipWindow, fadeInterval;
+    let isAlerting = false;
     let canvas = document.createElement("canvas");
     let ctx = canvas.getContext("2d", {willReadFrequently: true});
     canvas.width = 100; canvas.height = 100;
 
-    // --- Time Formatting ---
     function formatTime(seconds) {
         if (isNaN(seconds) || seconds === Infinity) return "00:00:00";
         const h = Math.floor(seconds / 3600);
@@ -92,13 +94,31 @@
         return [h, m, s].map(v => v.toString().padStart(2, '0')).join(':');
     }
 
-    // --- Audio Player Logic ---
+    // --- Audio Logic ---
     function loadMusic() {
         const url = document.getElementById('audioUrl').value;
         if(!url) return;
         audio.src = url;
         audio.volume = document.getElementById('musicVol').value;
         audio.play();
+        pauseBtn.innerText = "Pause";
+    }
+
+    function togglePause() {
+        if (audio.paused) {
+            audio.play();
+            pauseBtn.innerText = "Pause";
+        } else {
+            audio.pause();
+            pauseBtn.innerText = "Resume";
+        }
+    }
+
+    function updateMasterVolume() {
+        // Only update volume if an alert is NOT currently active
+        if (!isAlerting) {
+            audio.volume = document.getElementById('musicVol').value;
+        }
     }
 
     audio.ontimeupdate = () => {
@@ -153,7 +173,7 @@
         }
     }
 
-    // --- Monitoring & PiP ---
+    // --- Monitoring ---
     async function startCapture() {
         if (Notification.permission !== "granted") await Notification.requestPermission();
         try {
@@ -175,7 +195,6 @@
     function startAnalysis() {
         const v = document.createElement("video");
         v.srcObject = sourceStream; v.play();
-        let isAlerting = false;
 
         setInterval(() => {
             if (v.readyState >= 2) {
