@@ -2,23 +2,15 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Minimal PiP Monitor</title>
+    <title>Minimal PiP Monitor + Alerts</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f4f9; color: #333; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
         .card { background: white; padding: 30px; border-radius: 16px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.05); width: 280px; }
-        h3 { margin-top: 0; font-weight: 600; }
-        button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; transition: opacity 0.2s; }
+        button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; }
         .btn-capture { background: #000; color: #fff; }
         .btn-pip { background: #0071e3; color: white; display: none; }
         #status { font-size: 12px; margin-top: 10px; color: #888; }
-        
-        /* The PiP Box - Hidden on main page */
-        #alert-box {
-            width: 100%;
-            height: 100%;
-            background: #ffffff; /* Bright Background */
-            transition: background 0.1s;
-        }
+        #alert-box { width: 100%; height: 100%; background: #ffffff; transition: background 0.1s; }
         .trigger-active { background: #ff0000 !important; }
     </style>
 </head>
@@ -38,6 +30,8 @@
     let pipWindow = null;
     let canvas = document.createElement("canvas");
     let ctx = canvas.getContext("2d", {willReadFrequently: true});
+    let lastNotificationTime = 0; // To prevent spamming notifications
+
     const alertBox = document.getElementById('alert-box');
     const pipBtn = document.getElementById('pipBtn');
     const statusText = document.getElementById('status');
@@ -46,6 +40,11 @@
     canvas.height = 100;
 
     async function startCapture() {
+        // Request Notification permission immediately
+        if (Notification.permission !== "granted") {
+            await Notification.requestPermission();
+        }
+
         try {
             sourceStream = await navigator.mediaDevices.getDisplayMedia({
                 video: { displaySurface: "browser", frameRate: 1 },
@@ -63,7 +62,6 @@
             height: 150,
         });
 
-        // Minimalist CSS for the PiP window
         const style = pipWindow.document.createElement('style');
         style.textContent = `
             body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #fff; }
@@ -77,6 +75,18 @@
             document.body.append(alertBox);
             pipWindow = null;
         });
+    }
+
+    function sendNotification() {
+        const now = Date.now();
+        // Only send a notification once every 30 seconds to avoid spam
+        if (now - lastNotificationTime > 30000) {
+            new Notification("Tab Monitor Alert", {
+                body: "Activity detected in monitored tab!",
+                silent: false
+            });
+            lastNotificationTime = now;
+        }
     }
 
     function startAnalysis() {
@@ -100,14 +110,14 @@
                 }
                 const variance = varSum / (data.length / 4);
 
-                // High variance = Visual change/High detail
                 if (variance > 250) {
                     alertBox.classList.add('trigger-active');
+                    sendNotification(); // Trigger browser notification
                 } else {
                     alertBox.classList.remove('trigger-active');
                 }
             }
-        }, 1000); // Check every second
+        }, 1000);
     }
 </script>
 
