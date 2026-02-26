@@ -1,134 +1,97 @@
 <!DOCTYPE html>
-<html lang="he" dir="rtl">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Minimal PiP Monitor - Stable Version</title>
+    <title>PiP Monitor with Variance Control</title>
     <style>
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
-            background: #f4f4f9; 
-            color: #333; 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
-            height: 100vh; 
-            margin: 0; 
-        }
-        .card { 
-            background: white; 
-            padding: 30px; 
-            border-radius: 16px; 
-            text-align: center; 
-            box-shadow: 0 10px 25px rgba(0,0,0,0.05); 
-            width: 280px; 
-        }
-        h3 { margin-top: 0; font-weight: 600; color: #1d1d1f; }
-        button { 
-            width: 100%; 
-            padding: 12px; 
-            margin-top: 10px; 
-            border-radius: 8px; 
-            border: none; 
-            cursor: pointer; 
-            font-weight: 600; 
-            transition: all 0.2s; 
-        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f4f9; color: #333; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: white; padding: 30px; border-radius: 16px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.05); width: 300px; }
+        h3 { margin-top: 0; font-weight: 600; }
+        button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; transition: opacity 0.2s; }
         .btn-capture { background: #000; color: #fff; }
-        .btn-capture:hover { opacity: 0.8; }
         .btn-pip { background: #0071e3; color: white; display: none; }
         
-        #status { 
-            font-size: 13px; 
-            margin-top: 15px; 
-            color: #666; 
-            padding: 5px;
-            background: #eee;
-            border-radius: 4px;
-        }
+        /* New UI Elements */
+        .control-group { margin-top: 20px; text-align: left; font-size: 14px; }
+        input[type=range] { width: 100%; margin: 10px 0; }
+        .stats { display: flex; justify-content: space-between; font-family: monospace; background: #eee; padding: 5px 10px; border-radius: 4px; margin-top: 5px; }
+        #status { font-size: 12px; margin-top: 10px; color: #888; }
         
-        /* תיבת ההתראה - תופיע בתוך ה-PiP */
-        #alert-box {
-            width: 100%;
-            height: 100%;
-            background: #ffffff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.2s ease;
-        }
-        .trigger-active { 
-            background: #ff3b30 !important; /* אדום אפל */
-        }
+        #alert-box { width: 100%; height: 20px; margin-top: 15px; border-radius: 4px; background: #eee; transition: background 0.1s; }
+        .trigger-active { background: #ff0000 !important; }
     </style>
 </head>
 <body>
 
 <div class="card">
-    <h3>PiP Monitor</h3>
-    <button class="btn-capture" onclick="startCapture()">1. בחר חלון לכיוון</button>
-    <div id="status">ממתין לבחירה...</div>
-    <button class="btn-pip" id="pipBtn" onclick="openPip()">2. הוצא חלון (PiP)</button>
+    <h3>Monitor</h3>
+    <button class="btn-capture" onclick="startCapture()">1. Select Tab</button>
+    <div id="status">Ready</div>
+    
+    <div class="control-group">
+        <label>Sensitivity (Threshold): <b id="threshold-val">150</b></label>
+        <input type="range" id="variance-slider" min="0" max="2000" value="150" oninput="updateThreshold(this.value)">
+        
+        <div class="stats">
+            <span>Live Var:</span>
+            <span id="live-variance">0</span>
+        </div>
+    </div>
 
+    <button class="btn-pip" id="pipBtn" onclick="openPip()">2. Pop Out</button>
     <div id="alert-box"></div>
 </div>
 
 <script>
     let sourceStream;
     let pipWindow = null;
-    let varianceHistory = []; // לאחסון דגימות למניעת הבהוב
-    const MAX_HISTORY = 3;   // כמה שניות לקחת בחשבון לממוצע
-    
+    let currentThreshold = 150;
     let canvas = document.createElement("canvas");
     let ctx = canvas.getContext("2d", {willReadFrequently: true});
+    
     const alertBox = document.getElementById('alert-box');
     const pipBtn = document.getElementById('pipBtn');
     const statusText = document.getElementById('status');
+    const liveVarDisplay = document.getElementById('live-variance');
+    const thresholdDisplay = document.getElementById('threshold-val');
 
     canvas.width = 100;
     canvas.height = 100;
 
+    function updateThreshold(val) {
+        currentThreshold = parseInt(val);
+        thresholdDisplay.innerText = val;
+    }
+
     async function startCapture() {
         try {
-            // הגדרות לכידה המותאמות לחלון
             sourceStream = await navigator.mediaDevices.getDisplayMedia({
-                video: { 
-                    displaySurface: "window", 
-                    frameRate: 1 
-                },
+                video: { displaySurface: "browser", frameRate: 1 },
                 audio: false
             });
-            
-            statusText.innerText = "מחובר - מנתח נתונים...";
+            statusText.innerText = "Target Set";
             pipBtn.style.display = "block";
             startAnalysis();
-        } catch (err) { 
-            console.error("Error:", err);
-            statusText.innerText = "הפעולה בוטלה";
-        }
+        } catch (err) { console.error(err); }
     }
 
     async function openPip() {
-        if (!window.documentPictureInPicture) {
-            alert("הדפדפן שלך לא תומך ב-Document PiP. נסה כרום עדכני.");
-            return;
-        }
+        if (!window.documentPictureInPicture) return alert("PiP API not supported");
 
         pipWindow = await window.documentPictureInPicture.requestWindow({
             width: 150,
             height: 150,
         });
 
-        // הזרקת עיצוב לחלון ה-PiP
         const style = pipWindow.document.createElement('style');
         style.textContent = `
-            body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
-            #alert-box { width: 100vw; height: 100vh; background: #fff; transition: background 0.2s; }
-            .trigger-active { background: #ff3b30 !important; }
+            body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #fff; }
+            #alert-box { width: 100vw; height: 100vh; transition: background 0.1s; border-radius: 0; margin: 0; }
+            .trigger-active { background: #ff0000 !important; }
         `;
         pipWindow.document.head.append(style);
         pipWindow.document.body.append(alertBox);
 
-        // החזרת האלמנט לדף הראשי כשסוגרים את ה-PiP
         pipWindow.addEventListener("pagehide", () => {
             document.querySelector('.card').append(alertBox);
             pipWindow = null;
@@ -149,37 +112,32 @@
                 let total = 0, varSum = 0;
                 const pixelCount = data.length / 4;
 
-                // חישוב ממוצע בהירות
                 for (let i = 0; i < data.length; i += 4) {
                     total += (data[i] + data[i+1] + data[i+2]) / 3;
                 }
                 const avg = total / pixelCount;
 
-                // חישוב שונות (Variance)
                 for (let i = 0; i < data.length; i += 4) {
                     const brightness = (data[i] + data[i+1] + data[i+2]) / 3;
                     varSum += Math.pow(brightness - avg, 2);
                 }
-                const currentVariance = varSum / pixelCount;
-
-                // עדכון היסטוריה וממוצע נע למניעת הבהוב
-                varianceHistory.push(currentVariance);
-                if (varianceHistory.length > MAX_HISTORY) varianceHistory.shift();
                 
-                const smoothedVariance = varianceHistory.reduce((a, b) => a + b) / varianceHistory.length;
+                const variance = Math.round(varSum / pixelCount);
+                
+                // Update the recognition display
+                liveVarDisplay.innerText = variance;
 
-                // לוגיקת צבע (Threshold)
-                if (smoothedVariance > 150) {
+                // Toggle alert based on slider threshold
+                if (variance > currentThreshold) {
                     alertBox.classList.add('trigger-active');
-                    statusText.innerText = "מצב: פעיל (High Variance)";
+                    liveVarDisplay.style.color = "red";
                 } else {
                     alertBox.classList.remove('trigger-active');
-                    statusText.innerText = "מצב: שקט";
+                    liveVarDisplay.style.color = "black";
                 }
             }
-        }, 1000); // בדיקה כל שנייה
+        }, 500); // Check every 0.5s for smoother feedback
     }
 </script>
-
 </body>
 </html>
