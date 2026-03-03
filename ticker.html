@@ -12,6 +12,7 @@
         input[type="number"] { width: 35px; background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; padding: 2px; }
         .stats { display: flex; justify-content: space-between; font-family: monospace; background: #000; padding: 6px 10px; border-radius: 6px; margin: 8px 0; font-size: 12px; }
         .val-display { color: #00ff41; font-weight: bold; }
+        .blur-display { color: #ffab00; font-weight: bold; }
         
         .vol-header { display: flex; justify-content: space-between; align-items: center; margin-top: 5px; }
         .vol-label { font-size: 10px; opacity: 0.7; }
@@ -25,7 +26,7 @@
         
         #canvasContainer { margin-top: 20px; border: 2px solid #333; position: relative; line-height: 0; overflow: hidden; border-radius: 4px; background: #000; width: 613px; min-height: 50px; display: flex; align-items: center; justify-content: center; }
         .active-border { border-color: #ff0000 !important; border-width: 4px !important; }
-        canvas { display: block; image-rendering: -webkit-optimize-contrast; max-width: 100%; height: auto; }
+        canvas { display: block; image-rendering: -webkit-optimize-contrast; max-width: 100%; height: auto; transition: filter 0.4s ease; }
         video { display: none; }
 
         .icon-btn { position: absolute; width: 24px; height: 24px; border-radius: 4px; background: rgba(0,0,0,0.6); color: white; font-size: 13px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; z-index: 100; }
@@ -74,6 +75,12 @@
         <input type="range" id="audio-delta-slider" min="10" max="2000" value="300" style="width:100%" oninput="updateAudioDelta(this.value)">
     </div>
 
+    <div class="stats"><span>Blur Sens:</span> <span id="blur-sens-val" class="blur-display">40000</span></div>
+    <div class="stats"><span>Live Motion:</span> <span id="live-motion-val" class="blur-display">0</span></div>
+    <div class="control-group">
+        <input type="range" id="blur-slider" min="5000" max="150000" step="5000" value="40000" style="width:100%" oninput="updateBlurThreshold(this.value)">
+    </div>
+
     <button class="btn-capture" onclick="startCapture()">Capture Target Tab</button>
     <button class="btn-pip" onclick="openPip()">Pop Out Video</button>
 </div>
@@ -101,10 +108,10 @@
     const unifiedSrc = 'https://n-121-7.il.cdn-redge.media/livehls/oil/kancdn-live/live/kan11/live.livx/playlist.m3u8?bitrate=100000';
     const radioSrc = 'https://n-121-4.il.cdn-redge.media/livehls/oil/kancdn-live/live/radio/kan_reshet_bet/live.livx/playlist.m3u8?bitrate=192000&audioId=1&lang=pol&renditions';
     
-    let sourceStream, currentThreshold = 150, audioDeltaThreshold = 300;
+    let sourceStream, currentThreshold = 150, audioDeltaThreshold = 300, blurThreshold = 40000;
     let isTriggered = false, bellMuted = false, tabMuted = false, radioOn = false, fullFrame = false;
     let invertOn = false, grayOn = false, pipWindow = null;
-    let audioCtx = null, lastCropVariance = 0, audioCooldown = false;
+    let audioCtx = null, lastCropVariance = 0, audioCooldown = false, lastFrameData = null;
     let globalVolume = 0.2;
 
     if (Hls.isSupported()) {
@@ -175,6 +182,7 @@
 
     function updateThreshold(v) { currentThreshold = parseInt(v); document.getElementById('thresh-val').innerText = v; }
     function updateAudioDelta(v) { audioDeltaThreshold = parseInt(v); document.getElementById('delta-val').innerText = v; }
+    function updateBlurThreshold(v) { blurThreshold = parseInt(v); document.getElementById('blur-sens-val').innerText = v; }
 
     function drawMain() {
         if (hlsVideo.readyState >= 2) {
@@ -189,20 +197,20 @@
                 sx = vW * l; sy = vH * t; sw = Math.max(vW * (1-l-r), 1); sh = Math.max(vH * (1-t-b), 1);
             }
             
-            // SET CANVAS TO NATURAL RATIO AT 613 WIDTH
             const ratio = sh / sw;
             canvas.width = 613;
             canvas.height = 613 * ratio;
 
-            let f = [];
-            if (!isTriggered && !fullFrame) f.push('grayscale(100%) brightness(0.7)');
-            if (fullFrame) { if (invertOn) f.push('invert(1)'); if (grayOn) f.push('grayscale(1)'); }
-            
-            ctx.filter = f.length ? f.join(' ') : 'none';
+            // DRAW INITIAL IMAGE TO PROCESS MOTION
             ctx.drawImage(hlsVideo, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
 
+            let f = [];
+            
             if (!fullFrame) {
-                const d = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+                const frame = ctx.getImageData(0,0,canvas.width,canvas.height);
+                const d = frame.data;
+
+                // 1. ORIGINAL VARIANCE/DELTA LOGIC (Untouched)
                 let t=0, vs=0; for(let i=0; i<d.length; i+=4) t+=(d[i]+d[i+1]+d[i+2])/3;
                 const avg=t/(d.length/4); for(let i=0; i<d.length; i+=4) vs+=Math.pow(((d[i]+d[i+1]+d[i+2])/3)-avg, 2);
                 const v = Math.round(vs/(d.length/4));
@@ -210,7 +218,27 @@
                 document.getElementById('crop-delta-display').innerText = delta;
                 if (delta > audioDeltaThreshold) playDigitalBell();
                 lastCropVariance = v;
+
+                // 2. NEW MOTION BLUR LOGIC
+                if (lastFrameData) {
+                    let motion = 0;
+                    for (let i = 0; i < d.length; i += 8) { // Sample every 2nd pixel for speed
+                        motion += Math.abs(d[i] - lastFrameData[i]);
+                    }
+                    document.getElementById('live-motion-val').innerText = motion;
+                    if (motion > blurThreshold) f.push('blur(15px)');
+                }
+                lastFrameData = d;
+
+                if (!isTriggered) f.push('grayscale(100%) brightness(0.7)');
+            } else {
+                if (invertOn) f.push('invert(1)'); if (grayOn) f.push('grayscale(1)'); 
+                lastFrameData = null; // Reset motion data when in TV mode
             }
+            
+            // APPLY FINAL FILTERS AND RE-DRAW
+            ctx.filter = f.length ? f.join(' ') : 'none';
+            ctx.drawImage(hlsVideo, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
         }
         requestAnimationFrame(drawMain);
     }
@@ -230,7 +258,7 @@
         style.textContent = `
             body, html { margin: 0; padding: 0; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
             #canvasContainer { width: 613px; height: 100%; display: flex; align-items: center; justify-content: center; position: relative; }
-            canvas { width: 613px; max-height: 100%; object-fit: contain; }
+            canvas { width: 613px; max-height: 100%; object-fit: contain; transition: filter 0.4s ease; }
             .active-border canvas { border: 4px solid #ff0000 !important; }
             .icon-btn { position: absolute; width: 24px; height: 24px; background: rgba(0,0,0,0.6); color: white; font-size: 13px; display: flex; align-items: center; justify-content: center; border: none; border-radius: 4px; cursor: pointer; }
             .txt-btn { position: absolute; top: 6px; height: 20px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 0 6px; border-radius: 4px; cursor: pointer; border: none; z-index: 101; font-weight: bold; }
