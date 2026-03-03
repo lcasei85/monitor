@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>HLS Cropper & Document PiP</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        body { font-family: sans-serif; background: #121212; color: white; text-align: center; }
+        .controls { 
+            display: grid; grid-template-columns: 1fr 1fr; gap: 10px; 
+            max-width: 500px; margin: 20px auto; background: #222; padding: 15px; border-radius: 10px;
+        }
+        #canvasContainer { margin-top: 20px; border: 2px solid #333; display: inline-block; line-height: 0; }
+        canvas { max-width: 100%; height: auto; background: #000; }
+        video { display: none; } /* Hidden source */
+        button { padding: 10px 20px; font-weight: bold; cursor: pointer; margin: 5px; }
+        .status { color: #ffcc00; font-size: 0.9em; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+    <h2>HLS Live Stream Cropper</h2>
+    <div id="status" class="status">Initializing Stream...</div>
+
+    <div class="controls">
+        <label>Top: <input type="range" id="t" min="0" max="99" value="0">%</label>
+        <label>Bottom: <input type="range" id="b" min="0" max="99" value="0">%</label>
+        <label>Left: <input type="range" id="l" min="0" max="99" value="0">%</label>
+        <label>Right: <input type="range" id="r" min="0" max="99" value="0">%</label>
+    </div>
+
+    <button id="playBtn">Force Play</button>
+    <button id="pipBtn" style="background: #007bff; color: white; border: none;">Open Document PiP</button>
+
+    <video id="video" muted playsinline crossorigin="anonymous"></video>
+    
+    <div id="canvasContainer">
+        <canvas id="cropCanvas"></canvas>
+    </div>
+
+<script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('cropCanvas');
+    const ctx = canvas.getContext('2d');
+    const status = document.getElementById('status');
+    const videoSrc = 'https://n-121-7.il.cdn-redge.media/livehls/oil/kancdn-live/live/kan11/live.livx/playlist.m3u8?bitrate=2940000&videoId=4&renditions&fmp4';
+
+    // 1. Setup HLS
+    if (Hls.isSupported()) {
+        const hls = new Hls();
+        hls.loadSource(videoSrc);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            status.innerText = "Stream Loaded. Click Play if it doesn't start.";
+            video.play().catch(() => { status.innerText = "Auto-play blocked. Click 'Force Play'"; });
+        });
+        hls.on(Hls.Events.ERROR, (e, data) => {
+            if (data.fatal) status.innerText = "Error: Stream unavailable or blocked.";
+        });
+    }
+
+    // 2. Continuous Rendering Loop
+    function drawFrame() {
+        if (video.paused || video.ended) {
+            requestAnimationFrame(drawFrame);
+            return;
+        }
+
+        const vW = video.videoWidth;
+        const vH = video.videoHeight;
+
+        if (vW > 0) {
+            // Get Crop Values
+            const t = parseInt(document.getElementById('t').value) / 100;
+            const b = parseInt(document.getElementById('b').value) / 100;
+            const l = parseInt(document.getElementById('l').value) / 100;
+            const r = parseInt(document.getElementById('r').value) / 100;
+
+            // Ensure crop doesn't invert (min 1% width/height)
+            const sWidth = Math.max(vW * (1 - l - r), 10);
+            const sHeight = Math.max(vH * (1 - t - b), 10);
+            const sx = vW * l;
+            const sy = vH * t;
+
+            // Update canvas dimensions
+            canvas.width = sWidth;
+            canvas.height = sHeight;
+
+            // Draw specific portion
+            ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
+        }
+        requestAnimationFrame(drawFrame);
+    }
+
+    video.addEventListener('play', () => {
+        status.innerText = "Streaming Live...";
+        drawFrame();
+    });
+
+    document.getElementById('playBtn').addEventListener('click', () => video.play());
+
+    // 3. Document PiP Logic
+    document.getElementById('pipBtn').addEventListener('click', async () => {
+        if (!window.documentPictureInPicture) {
+            alert("Document PiP requires Chrome/Edge 116+");
+            return;
+        }
+
+        const pipWindow = await window.documentPictureInPicture.requestWindow({
+            width: canvas.width,
+            height: canvas.height,
+        });
+
+        const container = document.getElementById('canvasContainer');
+        pipWindow.document.body.style.background = "black";
+        pipWindow.document.body.style.margin = "0";
+        pipWindow.document.body.style.display = "flex";
+        pipWindow.document.body.style.justifyContent = "center";
+        pipWindow.document.body.appendChild(container);
+        
+        container.style.width = "100vw";
+        canvas.style.width = "100%";
+
+        pipWindow.addEventListener("pagehide", () => {
+            document.body.appendChild(container);
+            container.style.width = "auto";
+        });
+    });
+</script>
+</body>
+</html>
