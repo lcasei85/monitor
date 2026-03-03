@@ -36,6 +36,7 @@
         .is-active { background: #0071e3 !important; }
         .is-active-glow { color: #00ff41 !important; box-shadow: 0 0 8px rgba(0,255,65,0.4); }
         .is-muted { color: #ff4444 !important; }
+        .is-auto-muted { color: #ffab00 !important; opacity: 0.8; } /* Special style for auto-mute */
     </style>
 </head>
 <body>
@@ -103,9 +104,7 @@
     let invertOn = false, grayOn = false, pipWindow = null;
     let audioCtx = null, lastCropVariance = 0, audioCooldown = false, lastFrameData = null;
     let globalVolume = 0.2, tvCycleStep = 0, lastLogicTime = 0;
-    
-    // Alternator variable
-    let useSound5 = false; 
+    let useSound5 = false, isAutoMuted = false;
 
     if (Hls.isSupported()) {
         const hlsV = new Hls(); hlsV.loadSource(unifiedSrc); hlsV.attachMedia(hlsVideo); hlsV.on(Hls.Events.MANIFEST_PARSED, () => hlsVideo.play());
@@ -116,10 +115,8 @@
 
     function updateMasterVolume(v) { 
         globalVolume = parseFloat(v); 
-        hlsVideo.volume = v; 
-        radioAudio.volume = v; 
-        sound2.volume = v;
-        sound5.volume = v;
+        hlsVideo.volume = v; radioAudio.volume = v; 
+        sound2.volume = v; sound5.volume = v;
     }
     
     function updateThreshold(v) { currentThreshold = parseInt(v); document.getElementById('thresh-val').innerText = v; }
@@ -128,13 +125,19 @@
 
     function setupButtonEvents(doc) {
         const setClick = (id, fn) => { const el = doc.getElementById(id); if(el) el.onclick = fn; };
-        setClick('muteBell', (e) => { e.stopPropagation(); bellMuted = !bellMuted; updateUI('muteBell', bellMuted, '🔇', '🔊', 'is-muted'); });
+        setClick('muteBell', (e) => { e.stopPropagation(); bellMuted = !bellMuted; refreshMuteUI(); });
         setClick('muteTab', (e) => { e.stopPropagation(); tabMuted = !tabMuted; updateUI('muteTab', tabMuted, '🔕', '🔔', 'is-muted'); });
         setClick('radioToggle', (e) => { e.stopPropagation(); radioOn = !radioOn; radioOn ? radioAudio.play() : radioAudio.pause(); updateUI('radioToggle', radioOn, '📻', '📻', 'is-active-glow'); });
         const cycleTV = (e) => { e.stopPropagation(); tvCycleStep = (tvCycleStep + 1) % 4; applyTVStep(); };
         setClick('fullFrameToggle', cycleTV); setClick('dashTv', cycleTV);
         setClick('btnInvert', (e) => { e.stopPropagation(); invertOn = !invertOn; updateUI('btnInvert', invertOn, 'INVERT', 'INVERT', 'is-active-glow'); });
         setClick('btnGray', (e) => { e.stopPropagation(); grayOn = !grayOn; updateUI('btnGray', grayOn, 'GRAY', 'GRAY', 'is-active-glow'); });
+    }
+
+    // Refreshes the bell icon based on manual OR auto mute state
+    function refreshMuteUI() {
+        const activeMute = bellMuted || isAutoMuted;
+        updateUI('muteBell', activeMute, '🔇', '🔊', activeMute ? (isAutoMuted && !bellMuted ? 'is-auto-muted' : 'is-muted') : '');
     }
 
     function applyTVStep() {
@@ -152,14 +155,16 @@
             if (!d) return;
             ['btnInvert', 'btnGray'].forEach(id => { const el = d.getElementById(id); if(el) el.style.setProperty('display', display, 'important'); });
         });
-        if (pipWindow) {
-            if (fullFrame || tvCycleStep === 3) { pipWindow.resizeTo(613, 345 + 60); }
-            else if (tvCycleStep === 0) { pipWindow.resizeTo(613, 88); pipWindow.moveTo(window.screen.availWidth - 613, window.screen.availHeight - 88); }
-        }
     }
 
     function updateUI(id, state, activeTxt, inactiveTxt, className) {
-        const up = (d) => { const el = d.getElementById(id); if (!el) return; el.innerText = state ? activeTxt : inactiveTxt; state ? el.classList.add(className) : el.classList.remove(className); };
+        const up = (d) => { 
+            const el = d.getElementById(id); if (!el) return; 
+            el.innerText = state ? activeTxt : inactiveTxt; 
+            el.className = 'icon-btn'; // reset
+            if (id === 'btnInvert' || id === 'btnGray') el.className = 'txt-btn';
+            if (state && className) el.classList.add(...className.split(' '));
+        };
         up(document); if (pipWindow) up(pipWindow.document);
     }
 
@@ -185,19 +190,26 @@
                     const delta = Math.abs(v - lastCropVariance);
                     document.getElementById('crop-delta-display').innerText = delta;
                     
-                    // Trigger sound on jump
                     if (delta > audioDeltaThreshold) playJumpSound();
-                    
                     lastCropVariance = v;
 
                     if (lastFrameData) {
                         let motion = 0; for (let i = 0; i < d.length; i += 16) motion += Math.abs(d[i] - lastFrameData[i]);
                         document.getElementById('live-motion-val').innerText = motion;
-                        motion > blurThreshold ? canvas.classList.add('slow-blur') : canvas.classList.remove('slow-blur');
+                        
+                        // AUTO-MUTE LOGIC
+                        const shouldBlur = motion > blurThreshold;
+                        if (shouldBlur !== isAutoMuted) {
+                            isAutoMuted = shouldBlur;
+                            refreshMuteUI();
+                        }
+
+                        shouldBlur ? canvas.classList.add('slow-blur') : canvas.classList.remove('slow-blur');
                     }
                     lastFrameData = d;
                 } else {
                     canvas.classList.remove('slow-blur');
+                    if (isAutoMuted) { isAutoMuted = false; refreshMuteUI(); }
                 }
                 lastLogicTime = now;
             }
@@ -212,19 +224,12 @@
     }
     hlsVideo.addEventListener('play', () => requestAnimationFrame(drawMain));
 
-    // Logic to alternate between 2.mp3 and 5.mp3
     function playJumpSound() {
-        if(bellMuted || audioCooldown || globalVolume <= 0) return;
-        
-        // Choose sound based on toggle
+        if(bellMuted || isAutoMuted || audioCooldown || globalVolume <= 0) return;
         const soundToPlay = useSound5 ? sound5 : sound2;
-        
         soundToPlay.currentTime = 0;
-        soundToPlay.play().catch(e => console.log("Audio play blocked", e));
-        
-        // Toggle the flag for next time
+        soundToPlay.play().catch(e => {});
         useSound5 = !useSound5;
-
         audioCooldown = true;
         setTimeout(() => audioCooldown = false, 2000);
     }
@@ -262,11 +267,12 @@
             #muteBell { bottom: 6px; left: 6px; } #muteTab { bottom: 6px; right: 6px; }
             #btnInvert { left: 35px; } #btnGray { left: 75px; }
             .is-muted { color: #ff4444 !important; } .is-active-glow { color: #00ff41 !important; box-shadow: 0 0 8px rgba(0,255,65,0.4); }
+            .is-auto-muted { color: #ffab00 !important; opacity: 0.8; }
         `;
         pipWindow.document.head.appendChild(style);
         pipWindow.document.body.appendChild(container);
         setupButtonEvents(pipWindow.document);
-        applyTVStep();
+        refreshMuteUI();
         pipWindow.addEventListener("pagehide", () => { document.body.appendChild(container); setupButtonEvents(document); pipWindow = null; });
     }
 </script>
