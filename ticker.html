@@ -2,130 +2,194 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>HLS Cropper & Document PiP</title>
+    <title>Auto-Filter HLS Monitor</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
-        body { font-family: sans-serif; background: #121212; color: white; text-align: center; }
-        .controls { 
-            display: grid; grid-template-columns: 1fr 1fr; gap: 10px; 
-            max-width: 500px; margin: 20px auto; background: #222; padding: 15px; border-radius: 10px;
-        }
-        #canvasContainer { margin-top: 20px; border: 2px solid #333; display: inline-block; line-height: 0; }
-        canvas { max-width: 100%; height: auto; background: #000; }
-        video { display: none; } /* Hidden source */
-        button { padding: 10px 20px; font-weight: bold; cursor: pointer; margin: 5px; }
-        .status { color: #ffcc00; font-size: 0.9em; margin-bottom: 10px; }
+        body { font-family: -apple-system, sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        .card { background: #252525; padding: 20px; border-radius: 16px; width: 350px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+        
+        /* Cropping Controls */
+        .controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px; margin-top: 15px; }
+        .control-group { text-align: left; }
+        input[type="number"] { width: 40px; background: #333; color: #fff; border: 1px solid #555; }
+
+        /* Analysis UI */
+        .stats { display: flex; justify-content: space-between; font-family: monospace; background: #000; padding: 8px; border-radius: 4px; margin: 10px 0; }
+        #status { font-size: 12px; color: #aaa; margin-bottom: 10px; }
+        
+        button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; }
+        .btn-capture { background: #fff; color: #000; }
+        .btn-pip { background: #0071e3; color: white; }
+        
+        #canvasContainer { margin-top: 20px; border: 3px solid #333; transition: border-color 0.2s; }
+        .active-border { border-color: #ff0000 !important; }
+        canvas { max-width: 100%; height: auto; }
+        video { display: none; }
     </style>
 </head>
 <body>
 
-    <h2>HLS Live Stream Cropper</h2>
-    <div id="status" class="status">Initializing Stream...</div>
+<div class="card">
+    <h3>Stream Monitor</h3>
+    <div id="status">1. Setup Stream -> 2. Capture Tab</div>
 
-    <div class="controls">
-        <label>Top: <input type="range" id="t" min="0" max="99" value="0">%</label>
-        <label>Bottom: <input type="range" id="b" min="0" max="99" value="0">%</label>
-        <label>Left: <input type="range" id="l" min="0" max="99" value="0">%</label>
-        <label>Right: <input type="range" id="r" min="0" max="99" value="0">%</label>
+    <div class="controls-grid">
+        <div class="control-group">Top % <input type="number" id="t_num" value="79"></div>
+        <div class="control-group">Bot % <input type="number" id="b_num" value="10"></div>
+        <div class="control-group">Lft % <input type="number" id="l_num" value="4"></div>
+        <div class="control-group">Rgt % <input type="number" id="r_num" value="33"></div>
     </div>
 
-    <button id="playBtn">Force Play</button>
-    <button id="pipBtn" style="background: #007bff; color: white; border: none;">Open Document PiP</button>
+    <hr style="opacity: 0.1; margin: 15px 0;">
 
-    <video id="video" muted playsinline crossorigin="anonymous"></video>
+    <button class="btn-capture" onclick="startCapture()">Capture Target Tab</button>
     
-    <div id="canvasContainer">
-        <canvas id="cropCanvas"></canvas>
+    <div class="control-group" style="margin-top:10px;">
+        <label>Sensitivity: <b id="threshold-val">150</b></label>
+        <input type="range" id="variance-slider" min="0" max="2000" value="150" style="width:100%" oninput="updateThreshold(this.value)">
+        <div class="stats">
+            <span>Variance:</span>
+            <span id="live-variance">0</span>
+        </div>
     </div>
+
+    <button class="btn-pip" onclick="openPip()">Pop Out Video</button>
+</div>
+
+<div id="canvasContainer">
+    <canvas id="cropCanvas"></canvas>
+</div>
+
+<video id="hlsVideo" muted playsinline crossorigin="anonymous"></video>
 
 <script>
-    const video = document.getElementById('video');
+    // --- SETTINGS & STATE ---
+    const hlsVideo = document.getElementById('hlsVideo');
     const canvas = document.getElementById('cropCanvas');
-    const ctx = canvas.getContext('2d');
-    const status = document.getElementById('status');
-    const videoSrc = 'https://n-121-7.il.cdn-redge.media/livehls/oil/kancdn-live/live/kan11/live.livx/playlist.m3u8?bitrate=2940000&videoId=4&renditions&fmp4';
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const hlsSrc = 'https://n-121-7.il.cdn-redge.media/livehls/oil/kancdn-live/live/kan11/live.livx/playlist.m3u8?bitrate=2940000&videoId=4&renditions&fmp4';
+    
+    let sourceStream; // The Captured Tab
+    let currentThreshold = 150;
+    let isTriggered = false;
 
-    // 1. Setup HLS
+    // --- 1. HLS INITIALIZATION ---
     if (Hls.isSupported()) {
         const hls = new Hls();
-        hls.loadSource(videoSrc);
-        hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            status.innerText = "Stream Loaded. Click Play if it doesn't start.";
-            video.play().catch(() => { status.innerText = "Auto-play blocked. Click 'Force Play'"; });
-        });
-        hls.on(Hls.Events.ERROR, (e, data) => {
-            if (data.fatal) status.innerText = "Error: Stream unavailable or blocked.";
-        });
+        hls.loadSource(hlsSrc);
+        hls.attachMedia(hlsVideo);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => hlsVideo.play());
     }
 
-    // 2. Continuous Rendering Loop
-    function drawFrame() {
-        if (video.paused || video.ended) {
-            requestAnimationFrame(drawFrame);
-            return;
-        }
+    // --- 2. CAPTURE LOGIC (FOR ANALYSIS) ---
+    async function startCapture() {
+        try {
+            sourceStream = await navigator.mediaDevices.getDisplayMedia({
+                video: { displaySurface: "browser", frameRate: 5 },
+                audio: false
+            });
+            document.getElementById('status').innerText = "Analyzing Captured Tab...";
+            startAnalysis();
+        } catch (err) { console.error(err); }
+    }
 
-        const vW = video.videoWidth;
-        const vH = video.videoHeight;
+    function updateThreshold(val) {
+        currentThreshold = parseInt(val);
+        document.getElementById('threshold-val').innerText = val;
+    }
 
-        if (vW > 0) {
-            // Get Crop Values
-            const t = parseInt(document.getElementById('t').value) / 100;
-            const b = parseInt(document.getElementById('b').value) / 100;
-            const l = parseInt(document.getElementById('l').value) / 100;
-            const r = parseInt(document.getElementById('r').value) / 100;
+    // --- 3. ANALYSIS LOOP (Checks Variance of Captured Tab) ---
+    function startAnalysis() {
+        const vAnalyze = document.createElement("video");
+        vAnalyze.srcObject = sourceStream;
+        vAnalyze.play();
 
-            // Ensure crop doesn't invert (min 1% width/height)
-            const sWidth = Math.max(vW * (1 - l - r), 10);
-            const sHeight = Math.max(vH * (1 - t - b), 10);
+        const analysisCanvas = document.createElement("canvas");
+        const aCtx = analysisCanvas.getContext("2d", {willReadFrequently: true});
+        analysisCanvas.width = 50; // Small size for performance
+        analysisCanvas.height = 50;
+
+        setInterval(() => {
+            if (vAnalyze.readyState >= 2) {
+                aCtx.drawImage(vAnalyze, 0, 0, 50, 50);
+                const data = aCtx.getImageData(0, 0, 50, 50).data;
+                
+                let total = 0, varSum = 0;
+                const pixelCount = data.length / 4;
+
+                for (let i = 0; i < data.length; i += 4) {
+                    total += (data[i] + data[i+1] + data[i+2]) / 3;
+                }
+                const avg = total / pixelCount;
+
+                for (let i = 0; i < data.length; i += 4) {
+                    const brightness = (data[i] + data[i+1] + data[i+2]) / 3;
+                    varSum += Math.pow(brightness - avg, 2);
+                }
+                
+                const variance = Math.round(varSum / pixelCount);
+                document.getElementById('live-variance').innerText = variance;
+
+                // --- THE AUTOMATION TRIGGER ---
+                if (variance > currentThreshold) {
+                    isTriggered = true;
+                    document.getElementById('live-variance').style.color = "red";
+                    document.getElementById('canvasContainer').classList.add('active-border');
+                } else {
+                    isTriggered = false;
+                    document.getElementById('live-variance').style.color = "cyan";
+                    document.getElementById('canvasContainer').classList.remove('active-border');
+                }
+            }
+        }, 200); 
+    }
+
+    // --- 4. MAIN RENDER LOOP (Applies Filters based on Trigger) ---
+    function drawMain() {
+        if (hlsVideo.readyState >= 2) {
+            const vW = hlsVideo.videoWidth;
+            const vH = hlsVideo.videoHeight;
+
+            const t = parseFloat(document.getElementById('t_num').value) / 100;
+            const b = parseFloat(document.getElementById('b_num').value) / 100;
+            const l = parseFloat(document.getElementById('l_num').value) / 100;
+            const r = parseFloat(document.getElementById('r_num').value) / 100;
+
             const sx = vW * l;
             const sy = vH * t;
+            const sWidth = Math.max(vW * (1 - l - r), 1);
+            const sHeight = Math.max(vH * (1 - t - b), 1);
 
-            // Update canvas dimensions
             canvas.width = sWidth;
             canvas.height = sHeight;
 
-            // Draw specific portion
-            ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
+            // --- COLOR CHANGE LOGIC ---
+            // If triggered: Normal Color. If quiet: Grayscale.
+            ctx.filter = isTriggered ? 'none' : 'grayscale(100%) brightness(0.7)';
+            
+            // Draw the HLS stream
+            ctx.drawImage(hlsVideo, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
         }
-        requestAnimationFrame(drawFrame);
+        requestAnimationFrame(drawMain);
     }
+    hlsVideo.addEventListener('play', drawMain);
 
-    video.addEventListener('play', () => {
-        status.innerText = "Streaming Live...";
-        drawFrame();
-    });
-
-    document.getElementById('playBtn').addEventListener('click', () => video.play());
-
-    // 3. Document PiP Logic
-    document.getElementById('pipBtn').addEventListener('click', async () => {
-        if (!window.documentPictureInPicture) {
-            alert("Document PiP requires Chrome/Edge 116+");
-            return;
-        }
-
-        const pipWindow = await window.documentPictureInPicture.requestWindow({
-            width: canvas.width,
-            height: canvas.height,
-        });
-
+    // --- 5. DOCUMENT PIP ---
+    async function openPip() {
+        if (!window.documentPictureInPicture) return alert("PiP not supported");
+        const pipWin = await window.documentPictureInPicture.requestWindow({ width: canvas.width, height: canvas.height });
         const container = document.getElementById('canvasContainer');
-        pipWindow.document.body.style.background = "black";
-        pipWindow.document.body.style.margin = "0";
-        pipWindow.document.body.style.display = "flex";
-        pipWindow.document.body.style.justifyContent = "center";
-        pipWindow.document.body.appendChild(container);
         
+        pipWin.document.body.style.background = "#000";
+        pipWin.document.body.style.margin = "0";
+        pipWin.document.body.appendChild(container);
         container.style.width = "100vw";
-        canvas.style.width = "100%";
 
-        pipWindow.addEventListener("pagehide", () => {
+        pipWin.addEventListener("pagehide", () => {
             document.body.appendChild(container);
             container.style.width = "auto";
         });
-    });
+    }
 </script>
 </body>
 </html>
