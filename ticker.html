@@ -2,31 +2,22 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Auto-Filter HLS Monitor</title>
+    <title>Delta-Logic HLS Monitor</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         body { font-family: -apple-system, sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
         .card { background: #252525; padding: 20px; border-radius: 16px; width: 350px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
-        
-        /* Cropping Controls */
         .controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px; margin-top: 15px; }
         .control-group { text-align: left; }
         input[type="number"] { width: 40px; background: #333; color: #fff; border: 1px solid #555; }
-
-        /* Analysis UI */
         .stats { display: flex; justify-content: space-between; font-family: monospace; background: #000; padding: 8px; border-radius: 4px; margin: 10px 0; }
-        #status { font-size: 12px; color: #aaa; margin-bottom: 10px; }
-        
         button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; }
         .btn-capture { background: #fff; color: #000; }
         .btn-pip { background: #0071e3; color: white; }
-        
         #canvasContainer { margin-top: 20px; border: 3px solid #333; transition: border-color 0.2s; }
         .active-border { border-color: #ff0000 !important; }
         canvas { max-width: 100%; height: auto; }
         video { display: none; }
-
-        /* Audio Control UI */
         .audio-section { border-top: 1px solid #444; margin-top: 15px; padding-top: 15px; }
     </style>
 </head>
@@ -34,8 +25,7 @@
 
 <div class="card">
     <h3>Stream Monitor</h3>
-    <div id="status">1. Setup Stream -> 2. Capture Tab</div>
-
+    
     <div class="controls-grid">
         <div class="control-group">Top % <input type="number" id="t_num" value="79"></div>
         <div class="control-group">Bot % <input type="number" id="b_num" value="10"></div>
@@ -57,11 +47,11 @@
     </div>
 
     <div class="control-group audio-section">
-        <label>Crop Sensitivity (Audio): <b id="audio-threshold-val">500</b></label>
-        <input type="range" id="audio-variance-slider" min="0" max="10000" value="500" style="width:100%" oninput="updateAudioThreshold(this.value)">
+        <label>Audio Jump Sensitivity: <b id="audio-delta-val">300</b></label>
+        <input type="range" id="audio-delta-slider" min="10" max="2000" value="300" style="width:100%" oninput="updateAudioDelta(this.value)">
         <div class="stats">
-            <span>Crop Var:</span>
-            <span id="crop-live-variance">0</span>
+            <span>Crop Jump:</span>
+            <span id="crop-delta-display">0</span>
         </div>
     </div>
 
@@ -75,38 +65,44 @@
 <video id="hlsVideo" muted playsinline crossorigin="anonymous"></video>
 
 <script>
-    // --- SETTINGS & STATE ---
     const hlsVideo = document.getElementById('hlsVideo');
     const canvas = document.getElementById('cropCanvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const hlsSrc = 'https://n-121-7.il.cdn-redge.media/livehls/oil/kancdn-live/live/kan11/live.livx/playlist.m3u8?bitrate=2940000&videoId=4&renditions&fmp4';
     
-    let sourceStream; // The Captured Tab
+    let sourceStream; 
     let currentThreshold = 150;
-    let audioThreshold = 500;
+    let audioDeltaThreshold = 300;
     let isTriggered = false;
+    
     let audioCtx = null;
+    let lastCropVariance = 0;
     let audioCooldown = false;
 
-    // --- AUDIO ALERT FUNCTION ---
-    function playBeep() {
+    // --- Digital Bell Sound (C5 Sine, 1.0s) ---
+    function playDigitalBell() {
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         if (audioCooldown) return;
-        
+
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(523, audioCtx.currentTime); // C5
+        
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 1.0); // 1 second decay
+
         osc.connect(gain);
         gain.connect(audioCtx.destination);
-        osc.frequency.value = 880; 
-        gain.gain.value = 0.1;
+
         osc.start();
-        osc.stop(audioCtx.currentTime + 0.1);
-        
+        osc.stop(audioCtx.currentTime + 1.0);
+
         audioCooldown = true;
-        setTimeout(() => audioCooldown = false, 1000); // Prevent beep spam
+        setTimeout(() => audioCooldown = false, 2000); // 2s silence between chimes
     }
 
-    // --- 1. HLS INITIALIZATION ---
     if (Hls.isSupported()) {
         const hls = new Hls();
         hls.loadSource(hlsSrc);
@@ -114,14 +110,12 @@
         hls.on(Hls.Events.MANIFEST_PARSED, () => hlsVideo.play());
     }
 
-    // --- 2. CAPTURE LOGIC (FOR ANALYSIS) ---
     async function startCapture() {
         try {
             sourceStream = await navigator.mediaDevices.getDisplayMedia({
                 video: { displaySurface: "browser", frameRate: 5 },
                 audio: false
             });
-            document.getElementById('status').innerText = "Analyzing Captured Tab...";
             startAnalysis();
         } catch (err) { console.error(err); }
     }
@@ -131,95 +125,80 @@
         document.getElementById('threshold-val').innerText = val;
     }
 
-    function updateAudioThreshold(val) {
-        audioThreshold = parseInt(val);
-        document.getElementById('audio-threshold-val').innerText = val;
+    function updateAudioDelta(val) {
+        audioDeltaThreshold = parseInt(val);
+        document.getElementById('audio-delta-val').innerText = val;
     }
 
-    // --- 3. ANALYSIS LOOP (Checks Variance of Captured Tab) ---
     function startAnalysis() {
         const vAnalyze = document.createElement("video");
         vAnalyze.srcObject = sourceStream;
         vAnalyze.play();
-
-        const analysisCanvas = document.createElement("canvas");
-        const aCtx = analysisCanvas.getContext("2d", {willReadFrequently: true});
-        analysisCanvas.width = 50; 
-        analysisCanvas.height = 50;
+        const aCanvas = document.createElement("canvas");
+        const aCtx = aCanvas.getContext("2d", {willReadFrequently: true});
+        aCanvas.width = 50; aCanvas.height = 50;
 
         setInterval(() => {
             if (vAnalyze.readyState >= 2) {
                 aCtx.drawImage(vAnalyze, 0, 0, 50, 50);
                 const data = aCtx.getImageData(0, 0, 50, 50).data;
                 let total = 0, varSum = 0;
-                for (let i = 0; i < data.length; i += 4) {
-                    total += (data[i] + data[i+1] + data[i+2]) / 3;
-                }
+                for (let i = 0; i < data.length; i += 4) total += (data[i] + data[i+1] + data[i+2]) / 3;
                 const avg = total / (data.length/4);
-                for (let i = 0; i < data.length; i += 4) {
-                    varSum += Math.pow(((data[i] + data[i+1] + data[i+2]) / 3) - avg, 2);
-                }
+                for (let i = 0; i < data.length; i += 4) varSum += Math.pow(((data[i] + data[i+1] + data[i+2]) / 3) - avg, 2);
                 const variance = Math.round(varSum / (data.length/4));
                 document.getElementById('live-variance').innerText = variance;
 
                 if (variance > currentThreshold) {
                     isTriggered = true;
-                    document.getElementById('live-variance').style.color = "red";
                     document.getElementById('canvasContainer').classList.add('active-border');
                 } else {
                     isTriggered = false;
-                    document.getElementById('live-variance').style.color = "cyan";
                     document.getElementById('canvasContainer').classList.remove('active-border');
                 }
             }
         }, 200); 
     }
 
-    // --- 4. MAIN RENDER LOOP + CROP ANALYSIS ---
     function drawMain() {
         if (hlsVideo.readyState >= 2) {
-            const vW = hlsVideo.videoWidth;
-            const vH = hlsVideo.videoHeight;
+            const vW = hlsVideo.videoWidth, vH = hlsVideo.videoHeight;
             const t = parseFloat(document.getElementById('t_num').value) / 100;
             const b = parseFloat(document.getElementById('b_num').value) / 100;
             const l = parseFloat(document.getElementById('l_num').value) / 100;
             const r = parseFloat(document.getElementById('r_num').value) / 100;
 
-            const sx = vW * l, sy = vH * t;
-            const sWidth = Math.max(vW * (1 - l - r), 1);
-            const sHeight = Math.max(vH * (1 - t - b), 1);
-
-            canvas.width = sWidth;
-            canvas.height = sHeight;
+            canvas.width = Math.max(vW * (1 - l - r), 1);
+            canvas.height = Math.max(vH * (1 - t - b), 1);
 
             ctx.filter = isTriggered ? 'none' : 'grayscale(100%) brightness(0.7)';
-            ctx.drawImage(hlsVideo, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
+            ctx.drawImage(hlsVideo, vW*l, vH*t, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
 
-            // --- CROP VARIANCE ANALYSIS FOR AUDIO ---
+            // --- DELTA VARIANCE ANALYSIS ---
             const cropData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
             let cTotal = 0, cVarSum = 0;
-            for (let i = 0; i < cropData.length; i += 4) {
-                cTotal += (cropData[i] + cropData[i+1] + cropData[i+2]) / 3;
-            }
+            for (let i = 0; i < cropData.length; i += 4) cTotal += (cropData[i] + cropData[i+1] + cropData[i+2]) / 3;
             const cAvg = cTotal / (cropData.length/4);
-            for (let i = 0; i < cropData.length; i += 4) {
-                cVarSum += Math.pow(((cropData[i] + cropData[i+1] + cropData[i+2]) / 3) - cAvg, 2);
-            }
-            const cropVariance = Math.round(cVarSum / (cropData.length/4));
-            document.getElementById('crop-live-variance').innerText = cropVariance;
+            for (let i = 0; i < cropData.length; i += 4) cVarSum += Math.pow(((cropData[i] + cropData[i+1] + cropData[i+2]) / 3) - cAvg, 2);
+            const currentCropVariance = Math.round(cVarSum / (cropData.length/4));
 
-            if (cropVariance > audioThreshold) {
-                playBeep();
-                document.getElementById('crop-live-variance').style.color = "orange";
+            // Logic: Compare current variance to last variance
+            const delta = Math.abs(currentCropVariance - lastCropVariance);
+            document.getElementById('crop-delta-display').innerText = delta;
+
+            if (delta > audioDeltaThreshold) {
+                playDigitalBell();
+                document.getElementById('crop-delta-display').style.color = "yellow";
             } else {
-                document.getElementById('crop-live-variance').style.color = "white";
+                document.getElementById('crop-delta-display').style.color = "white";
             }
+            
+            lastCropVariance = currentCropVariance;
         }
         requestAnimationFrame(drawMain);
     }
     hlsVideo.addEventListener('play', drawMain);
 
-    // --- 5. DOCUMENT PIP ---
     async function openPip() {
         if (!window.documentPictureInPicture) return alert("PiP not supported");
         const pipWin = await window.documentPictureInPicture.requestWindow({ width: canvas.width, height: canvas.height });
@@ -232,11 +211,7 @@
         `;
         pipWin.document.head.appendChild(style);
         pipWin.document.body.appendChild(container);
-        pipWin.addEventListener("pagehide", () => {
-            document.body.appendChild(container);
-            container.style.width = "auto";
-            container.style.height = "auto";
-        });
+        pipWin.addEventListener("pagehide", () => document.body.appendChild(container));
     }
 </script>
 </body>
