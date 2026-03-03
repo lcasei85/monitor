@@ -88,9 +88,13 @@
     let isTriggered = false, bellMuted = false, tabMuted = false, pipWindow = null;
     let audioCtx = null, lastCropVariance = 0, audioCooldown = false, colorChangeLock = false;
 
-    // Attach local click listeners
-    document.getElementById('muteBell').addEventListener('click', () => toggleMute('bell'));
-    document.getElementById('muteTab').addEventListener('click', () => toggleMute('tab'));
+    // Initial setup for main window buttons
+    setupButtonEvents(document);
+
+    function setupButtonEvents(docContext) {
+        docContext.getElementById('muteBell').onclick = () => toggleMute('bell');
+        docContext.getElementById('muteTab').onclick = () => toggleMute('tab');
+    }
 
     function toggleMute(type) {
         if (type === 'bell') {
@@ -104,10 +108,12 @@
 
     function updateMuteUI(id, state, onIcon, offIcon) {
         const icon = state ? offIcon : onIcon;
-        const btn = document.getElementById(id);
-        btn.innerText = icon;
-        btn.classList.toggle('is-muted', state);
+        // Update Main
+        const mainBtn = document.getElementById(id);
+        mainBtn.innerText = icon;
+        mainBtn.classList.toggle('is-muted', state);
         
+        // Update PiP if it exists
         if (pipWindow) {
             const pipBtn = pipWindow.document.getElementById(id);
             if (pipBtn) {
@@ -242,15 +248,12 @@
         pipWindow.document.head.appendChild(style);
         pipWindow.document.body.appendChild(container);
 
-        // RE-ATTACH LISTENERS in the PiP Window context
-        const pipBell = pipWindow.document.getElementById('muteBell');
-        const pipTab = pipWindow.document.getElementById('muteTab');
-        
-        pipBell.addEventListener('click', () => toggleMute('bell'));
-        pipTab.addEventListener('click', () => toggleMute('tab'));
+        // FORCED RE-BINDING: Explicitly setting the onclick for the PiP context
+        setupButtonEvents(pipWindow.document);
 
         pipWindow.addEventListener("pagehide", () => {
             document.body.appendChild(container);
+            setupButtonEvents(document); // Re-bind to main window context
             pipWindow = null;
         });
     }
