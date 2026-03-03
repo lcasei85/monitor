@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stream Monitor - Precision Snap</title>
+    <title>Stream Monitor - Auto-Blur Mode</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         body { font-family: -apple-system, sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
@@ -15,8 +15,7 @@
         
         .vol-header { display: flex; justify-content: space-between; align-items: center; margin-top: 5px; }
         .vol-label { font-size: 10px; opacity: 0.7; }
-        .btn-test { background: #444; color: #fff; font-size: 9px; padding: 2px 6px; border-radius: 4px; border: none; cursor: pointer; }
-
+        
         button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; }
         .btn-capture { background: #fff; color: #000; }
         .btn-pip { background: #0071e3; color: white; }
@@ -24,19 +23,16 @@
         .mode-row { display: flex; gap: 10px; margin-top: 10px; }
         .btn-mode { flex: 1; padding: 10px; background: #444; color: white; border-radius: 8px; font-size: 12px; display: flex; align-items: center; justify-content: center; gap: 5px; }
         
-        #canvasContainer { margin-top: 20px; border: 2px solid #333; position: relative; line-height: 0; overflow: hidden; border-radius: 4px; background: #000; }
+        #canvasContainer { margin-top: 20px; border: 2px solid #333; position: relative; line-height: 0; overflow: hidden; border-radius: 4px; background: #000; width: 613px; min-height: 50px; display: flex; align-items: center; justify-content: center; }
         .active-border { border-color: #ff0000 !important; border-width: 4px !important; }
-        canvas { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+        canvas { display: block; image-rendering: -webkit-optimize-contrast; max-width: 100%; height: auto; }
         video { display: none; }
 
         .icon-btn { position: absolute; width: 24px; height: 24px; border-radius: 4px; background: rgba(0,0,0,0.6); color: white; font-size: 13px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; z-index: 100; }
         .txt-btn { position: absolute; top: 6px; height: 20px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 0 6px; border-radius: 4px; cursor: pointer; border: none; z-index: 101; font-weight: bold; }
         
-        #radioToggle { top: 6px; left: 6px; }
-        #fullFrameToggle { top: 6px; right: 6px; }
-        #muteBell { bottom: 6px; left: 6px; }
-        #muteTab { bottom: 6px; right: 6px; }
-        
+        #radioToggle { top: 6px; left: 6px; } #fullFrameToggle { top: 6px; right: 6px; }
+        #muteBell { bottom: 6px; left: 6px; } #muteTab { bottom: 6px; right: 6px; }
         #btnInvert { left: 35px; } #btnGray { left: 75px; } #btnTvAudio { right: 35px; }
 
         .is-active { background: #0071e3 !important; color: white !important; }
@@ -54,6 +50,11 @@
         <button id="dashAud" class="btn-mode">🔊 AUD Stream</button>
     </div>
 
+    <div class="control-group" style="margin-top:15px;">
+        <div class="vol-header"><span class="vol-label">Master Volume</span></div>
+        <input type="range" id="masterVol" min="0" max="1" step="0.01" value="0.2" style="width:100%" oninput="updateMasterVolume(this.value)">
+    </div>
+
     <div class="controls-grid">
         <div class="control-group">Top % <input type="number" id="t_num" value="79"></div>
         <div class="control-group">Bot % <input type="number" id="b_num" value="10"></div>
@@ -65,16 +66,12 @@
     <div class="stats"><span>Live Var:</span> <span id="live-variance" class="val-display">0</span></div>
     <div class="control-group">
         <input type="range" id="variance-slider" min="0" max="2000" value="150" style="width:100%" oninput="updateThreshold(this.value)">
-        <div class="vol-header"><span class="vol-label">Chirp Vol</span><button class="btn-test" onclick="playTabChirp(true)">Test</button></div>
-        <input type="range" id="volChirp" min="0" max="1" step="0.05" value="0.1" style="width:100%">
     </div>
 
     <div class="stats"><span>Jump Limit:</span> <span id="delta-val" class="val-display">300</span></div>
     <div class="stats"><span>Live Jump:</span> <span id="crop-delta-display" class="val-display">0</span></div>
     <div class="control-group">
         <input type="range" id="audio-delta-slider" min="10" max="2000" value="300" style="width:100%" oninput="updateAudioDelta(this.value)">
-        <div class="vol-header"><span class="vol-label">Bell Vol</span><button class="btn-test" onclick="playDigitalBell(true)">Test</button></div>
-        <input type="range" id="volBell" min="0" max="1" step="0.05" value="0.15" style="width:100%">
     </div>
 
     <button class="btn-capture" onclick="startCapture()">Capture Target Tab</button>
@@ -84,11 +81,9 @@
 <div id="canvasContainer">
     <div id="radioToggle" class="icon-btn">📻</div>
     <div id="fullFrameToggle" class="icon-btn">📺</div>
-    
     <button id="btnInvert" class="txt-btn" style="display:none;">INVERT</button>
     <button id="btnGray" class="txt-btn" style="display:none;">GRAY</button>
     <button id="btnTvAudio" class="txt-btn" style="display:none;">AUD</button>
-
     <div id="muteBell" class="icon-btn">🔊</div>
     <div id="muteTab" class="icon-btn">🔔</div>
     <canvas id="cropCanvas"></canvas>
@@ -96,31 +91,34 @@
 
 <video id="hlsVideo" muted playsinline crossorigin="anonymous"></video>
 <audio id="radioAudio" crossorigin="anonymous"></audio>
-<audio id="tvAudio" crossorigin="anonymous"></audio>
 
 <script>
     const hlsVideo = document.getElementById('hlsVideo');
     const radioAudio = document.getElementById('radioAudio');
-    const tvAudio = document.getElementById('tvAudio');
     const canvas = document.getElementById('cropCanvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     
-    const hlsSrc = 'https://n-121-7.il.cdn-redge.media/livehls/oil/kancdn-live/live/kan11/live.livx/playlist.m3u8?bitrate=2940000&videoId=4&renditions&fmp4';
+    const unifiedSrc = 'https://n-121-7.il.cdn-redge.media/livehls/oil/kancdn-live/live/kan11/live.livx/playlist.m3u8?bitrate=100000';
     const radioSrc = 'https://n-121-4.il.cdn-redge.media/livehls/oil/kancdn-live/live/radio/kan_reshet_bet/live.livx/playlist.m3u8?bitrate=192000&audioId=1&lang=pol&renditions';
-    const tvAudioSrc = 'https://n-121-7.il.cdn-redge.media/livehls/oil/kancdn-live/live/kan11/live.livx/playlist.m3u8?bitrate=192000&audioId=1&lang=pol&renditions&fmp4';
     
     let sourceStream, currentThreshold = 150, audioDeltaThreshold = 300;
     let isTriggered = false, bellMuted = false, tabMuted = false, radioOn = false, fullFrame = false;
-    let invertOn = false, grayOn = false, tvAudioOn = false, pipWindow = null;
+    let invertOn = false, grayOn = false, pipWindow = null;
     let audioCtx = null, lastCropVariance = 0, audioCooldown = false;
+    let globalVolume = 0.2;
 
     if (Hls.isSupported()) {
-        const hlsV = new Hls(); hlsV.loadSource(hlsSrc); hlsV.attachMedia(hlsVideo); hlsV.on(Hls.Events.MANIFEST_PARSED, () => hlsVideo.play());
+        const hlsV = new Hls(); hlsV.loadSource(unifiedSrc); hlsV.attachMedia(hlsVideo); hlsV.on(Hls.Events.MANIFEST_PARSED, () => hlsVideo.play());
         const hlsA = new Hls(); hlsA.loadSource(radioSrc); hlsA.attachMedia(radioAudio);
-        const hlsT = new Hls(); hlsT.loadSource(tvAudioSrc); hlsT.attachMedia(tvAudio);
     }
 
     setupButtonEvents(document);
+
+    function updateMasterVolume(val) {
+        globalVolume = parseFloat(val);
+        hlsVideo.volume = globalVolume;
+        radioAudio.volume = globalVolume;
+    }
 
     function setupButtonEvents(doc) {
         const setClick = (id, fn) => { const el = doc.getElementById(id); if(el) el.onclick = fn; };
@@ -129,13 +127,15 @@
         setClick('radioToggle', (e) => { e.stopPropagation(); radioOn = !radioOn; radioOn ? radioAudio.play() : radioAudio.pause(); updateUI('radioToggle', radioOn, '📻', '📻', 'is-active-glow'); });
         
         const toggleTV = (e) => { e.stopPropagation(); fullFrame = !fullFrame; toggleFullFrameUI(); };
-        const toggleAUD = (e) => { e.stopPropagation(); tvAudioOn = !tvAudioOn; tvAudioOn ? tvAudio.play() : tvAudio.pause(); updateUI('btnTvAudio', tvAudioOn, 'AUD', 'AUD', 'is-active-glow'); updateUI('dashAud', tvAudioOn, '🔊 AUD Stream', '🔊 AUD Stream', 'is-active'); };
+        const toggleAUD = (e) => { 
+            e.stopPropagation(); 
+            hlsVideo.muted = !hlsVideo.muted; 
+            updateUI('btnTvAudio', !hlsVideo.muted, 'AUD', 'AUD', 'is-active-glow'); 
+            updateUI('dashAud', !hlsVideo.muted, '🔊 AUD Stream', '🔊 AUD Stream', 'is-active'); 
+        };
 
-        setClick('fullFrameToggle', toggleTV);
-        setClick('dashTv', toggleTV);
-        setClick('btnTvAudio', toggleAUD);
-        setClick('dashAud', toggleAUD);
-
+        setClick('fullFrameToggle', toggleTV); setClick('dashTv', toggleTV);
+        setClick('btnTvAudio', toggleAUD); setClick('dashAud', toggleAUD);
         setClick('btnInvert', (e) => { e.stopPropagation(); invertOn = !invertOn; updateUI('btnInvert', invertOn, 'INVERT', 'INVERT', 'is-active-glow'); });
         setClick('btnGray', (e) => { e.stopPropagation(); grayOn = !grayOn; updateUI('btnGray', grayOn, 'GRAY', 'GRAY', 'is-active-glow'); });
     }
@@ -154,14 +154,12 @@
 
         if (pipWindow) {
             if (fullFrame) {
-                pipWindow.resizeTo(hlsVideo.videoWidth || 1280, (hlsVideo.videoHeight || 720) + 60);
+                pipWindow.resizeTo(613, 345 + 60);
             } else {
-                // FORCE DIMENSIONS: 627 x 82 (includes chrome buffer)
-                pipWindow.resizeTo(627, 82 + 50); 
-                // SNAP TO BOTTOM RIGHT
+                pipWindow.resizeTo(613, 88); 
                 const screenW = window.screen.availWidth;
                 const screenH = window.screen.availHeight;
-                pipWindow.moveTo(screenW - 635, screenH - 140);
+                pipWindow.moveTo(screenW - 613, screenH - 88);
             }
         }
     }
@@ -175,61 +173,74 @@
         up(document); if (pipWindow) up(pipWindow.document);
     }
 
-    function updateThreshold(v) { 
-        currentThreshold = parseInt(v); 
-        document.getElementById('thresh-val').innerText = v; 
-    }
-    function updateAudioDelta(v) { 
-        audioDeltaThreshold = parseInt(v); 
-        document.getElementById('delta-val').innerText = v; 
-    }
+    function updateThreshold(v) { currentThreshold = parseInt(v); document.getElementById('thresh-val').innerText = v; }
+    function updateAudioDelta(v) { audioDeltaThreshold = parseInt(v); document.getElementById('delta-val').innerText = v; }
 
     function drawMain() {
         if (hlsVideo.readyState >= 2) {
             const vW = hlsVideo.videoWidth, vH = hlsVideo.videoHeight;
             let sx, sy, sw, sh;
-            if (fullFrame) { sx = 0; sy = 0; sw = vW; sh = vH; } 
-            else {
+            
+            if (fullFrame) { 
+                sx = 0; sy = 0; sw = vW; sh = vH; 
+            } else {
                 const t = document.getElementById('t_num').value/100, b = document.getElementById('b_num').value/100;
                 const l = document.getElementById('l_num').value/100, r = document.getElementById('r_num').value/100;
                 sx = vW * l; sy = vH * t; sw = Math.max(vW * (1-l-r), 1); sh = Math.max(vH * (1-t-b), 1);
             }
-            canvas.width = sw; canvas.height = sh;
-            let f = [];
-            if (!isTriggered && !fullFrame) f.push('grayscale(100%) brightness(0.7)');
-            if (fullFrame) { if (invertOn) f.push('invert(1)'); if (grayOn) f.push('grayscale(1)'); }
-            ctx.filter = f.length ? f.join(' ') : 'none';
-            ctx.drawImage(hlsVideo, sx, sy, sw, sh, 0, 0, sw, sh);
+            
+            const ratio = sh / sw;
+            canvas.width = 613;
+            canvas.height = 613 * ratio;
 
+            let f = [];
+            
             if (!fullFrame) {
-                const d = ctx.getImageData(0,0,sw,sh).data;
-                let t=0, vs=0; for(let i=0; i<d.length; i+=4) t+=(d[i]+d[i+1]+d[i+2])/3;
-                const avg=t/(d.length/4); for(let i=0; i<d.length; i+=4) vs+=Math.pow(((d[i]+d[i+1]+d[i+2])/3)-avg, 2);
-                const v = Math.round(vs/(d.length/4));
-                const delta = Math.abs(v - lastCropVariance);
+                // MOTION DETECTION LOGIC
+                const tempData = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+                let total=0, varSum=0; for(let i=0; i<tempData.length; i+=4) total+=(tempData[i]+tempData[i+1]+tempData[i+2])/3;
+                const avg=total/(tempData.length/4); for(let i=0; i<tempData.length; i+=4) varSum+=Math.pow(((tempData[i]+tempData[i+1]+tempData[i+2])/3)-avg, 2);
+                const currentVar = Math.round(varSum/(tempData.length/4));
+                const delta = Math.abs(currentVar - lastCropVariance);
+                
                 document.getElementById('crop-delta-display').innerText = delta;
-                if (delta > audioDeltaThreshold) playDigitalBell();
-                lastCropVariance = v;
+
+                // --- AUTO-BLUR LOGIC ---
+                // If the "Jump" (motion) is high, it means the static ticker is gone.
+                if (delta > audioDeltaThreshold) {
+                    f.push('blur(15px)');
+                    playDigitalBell();
+                }
+
+                if (!isTriggered) f.push('grayscale(100%) brightness(0.7)');
+                lastCropVariance = currentVar;
+            } else {
+                if (invertOn) f.push('invert(1)');
+                if (grayOn) f.push('grayscale(1)');
             }
+            
+            ctx.filter = f.length ? f.join(' ') : 'none';
+            ctx.drawImage(hlsVideo, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
         }
         requestAnimationFrame(drawMain);
     }
     hlsVideo.addEventListener('play', drawMain);
 
-    function playDigitalBell(isTest=false) { if(!isTest && (bellMuted || audioCooldown)) return; const vol = parseFloat(document.getElementById('volBell').value); if(vol <= 0) return; if(!audioCtx) audioCtx = new AudioContext(); const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain(); osc.frequency.setValueAtTime(523, audioCtx.currentTime); gain.gain.setValueAtTime(vol, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 1.0); osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 1.0); if(!isTest) { audioCooldown = true; setTimeout(() => audioCooldown = false, 2000); } }
-    function playTabChirp(isTest=false) { if(!isTest && tabMuted) return; const vol = parseFloat(document.getElementById('volChirp').value); if(vol <= 0) return; if(!audioCtx) audioCtx = new AudioContext(); const now = audioCtx.currentTime; const blip = (f,s,d) => { const o = audioCtx.createOscillator(); const g = audioCtx.createGain(); o.frequency.setValueAtTime(f, now+s); g.gain.setValueAtTime(vol, now+s); g.gain.exponentialRampToValueAtTime(0.0001, now+s+d); o.connect(g); g.connect(audioCtx.destination); o.start(now+s); o.stop(now+s+d); }; blip(2000,0,0.05); blip(2500,0.1,0.05); blip(3000,0.2,0.2); }
+    function playDigitalBell() { if(bellMuted || audioCooldown || globalVolume <= 0) return; if(!audioCtx) audioCtx = new AudioContext(); const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain(); osc.frequency.setValueAtTime(523, audioCtx.currentTime); gain.gain.setValueAtTime(globalVolume, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 1.0); osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 1.0); audioCooldown = true; setTimeout(() => audioCooldown = false, 2000); }
+    function playTabChirp() { if(tabMuted || globalVolume <= 0) return; if(!audioCtx) audioCtx = new AudioContext(); const now = audioCtx.currentTime; const blip = (f,s,d) => { const o = audioCtx.createOscillator(); const g = audioCtx.createGain(); o.frequency.setValueAtTime(f, now+s); g.gain.setValueAtTime(globalVolume, now+s); g.gain.exponentialRampToValueAtTime(0.0001, now+s+d); o.connect(g); g.connect(audioCtx.destination); o.start(now+s); o.stop(now+s+d); }; blip(2000,0,0.05); blip(2500,0.1,0.05); blip(3000,0.2,0.2); }
+    
     async function startCapture() { sourceStream = await navigator.mediaDevices.getDisplayMedia({video:true}); startAnalysis(); }
     function startAnalysis() { const vA = document.createElement("video"); vA.srcObject = sourceStream; vA.play(); const aC = document.createElement("canvas"); const aX = aC.getContext("2d"); aC.width=50; aC.height=50; setInterval(() => { if(vA.readyState >= 2) { aX.drawImage(vA,0,0,50,50); const d = aX.getImageData(0,0,50,50).data; let t=0, vS=0; for(let i=0; i<d.length; i+=4) t+=(d[i]+d[i+1]+d[i+2])/3; const avg=t/(d.length/4); for(let i=0; i<d.length; i+=4) vS+=Math.pow(((d[i]+d[i+1]+d[i+2]) / 3)-avg, 2); const v = Math.round(vS/(d.length/4)); document.getElementById('live-variance').innerText = v; const trig = v > currentThreshold; if(trig !== isTriggered) { if(trig) playTabChirp(); isTriggered = trig; document.getElementById('canvasContainer').classList.toggle('active-border', isTriggered); } } }, 200); }
 
     async function openPip() {
         if (!window.documentPictureInPicture) return alert("PiP not supported");
-        pipWindow = await window.documentPictureInPicture.requestWindow({ width: 627, height: 132 });
+        pipWindow = await window.documentPictureInPicture.requestWindow({ width: 613, height: 148 });
         const container = document.getElementById('canvasContainer');
         const style = pipWindow.document.createElement('style');
         style.textContent = `
             body, html { margin: 0; padding: 0; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
-            #canvasContainer { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; position: relative; }
-            canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
+            #canvasContainer { width: 613px; height: 100%; display: flex; align-items: center; justify-content: center; position: relative; }
+            canvas { width: 613px; max-height: 100%; object-fit: contain; }
             .active-border canvas { border: 4px solid #ff0000 !important; }
             .icon-btn { position: absolute; width: 24px; height: 24px; background: rgba(0,0,0,0.6); color: white; font-size: 13px; display: flex; align-items: center; justify-content: center; border: none; border-radius: 4px; cursor: pointer; }
             .txt-btn { position: absolute; top: 6px; height: 20px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 0 6px; border-radius: 4px; cursor: pointer; border: none; z-index: 101; font-weight: bold; }
