@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stream Monitor - Full Suite 2</title>
+    <title>Stream Monitor - Adaptive UI & Auto-Resize</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         body { font-family: -apple-system, sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
@@ -31,10 +31,10 @@
         
         #radioToggle { top: 6px; left: 6px; }
         #fullFrameToggle { top: 6px; right: 6px; }
-        #btnInvert { right: 70px; } 
-        #btnGray { right: 36px; }   
         #muteBell { bottom: 6px; left: 6px; }
         #muteTab { bottom: 6px; right: 6px; }
+        #btnInvert { left: 40px; }
+        #btnGray { right: 40px; }
 
         .is-active { color: #00ff41 !important; box-shadow: 0 0 8px rgba(0,255,65,0.4); }
         .is-muted { color: #ff4444 !important; }
@@ -72,7 +72,7 @@
 <div id="canvasContainer">
     <div id="radioToggle" class="icon-btn">📻</div>
     <div id="fullFrameToggle" class="icon-btn">📺</div>
-    <button id="btnInvert" class="txt-btn">INV</button>
+    <button id="btnInvert" class="txt-btn">INVERT</button>
     <button id="btnGray" class="txt-btn">GRAY</button>
     <div id="muteBell" class="icon-btn">🔊</div>
     <div id="muteTab" class="icon-btn">🔔</div>
@@ -88,43 +88,19 @@
     const canvas = document.getElementById('cropCanvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     
-    // Stable URLs
-    const hlsSrc = 'https://kan11.media.kan.org.il/hls/live/2024514/2024514.m3u8';
-    const radioSrc = 'https://n-121-4.il.cdn-redge.media/livehls/oil/kancdn-live/live/radio/kan_reshet_bet/live.livx/playlist.m3u8?bitrate=192000';
+    // Using your known working links
+    const hlsSrc = 'https://n-121-7.il.cdn-redge.media/livehls/oil/kancdn-live/live/kan11/live.livx/playlist.m3u8?bitrate=2940000&videoId=4&renditions&fmp4';
+    const radioSrc = 'https://n-121-4.il.cdn-redge.media/livehls/oil/kancdn-live/live/radio/kan_reshet_bet/live.livx/playlist.m3u8?bitrate=192000&audioId=1&lang=pol&renditions';
     
     let sourceStream, currentThreshold = 150, audioDeltaThreshold = 300;
     let isTriggered = false, bellMuted = false, tabMuted = false, radioOn = false, fullFrame = false;
     let invertOn = false, grayOn = false, pipWindow = null;
     let audioCtx = null, lastCropVariance = 0, audioCooldown = false;
 
-    // Load Streams
-    function loadHLS(videoEl, src) {
-        if (Hls.isSupported()) {
-            const hls = new Hls({
-                manifestLoadingMaxRetry: 10,
-                levelLoadingMaxRetry: 10,
-                enableWorker: true
-            });
-            hls.loadSource(src);
-            hls.attachMedia(videoEl);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play());
-            hls.on(Hls.Events.ERROR, (event, data) => {
-                if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR: hls.startLoad(); break;
-                        case Hls.ErrorTypes.MEDIA_ERROR: hls.recoverMediaError(); break;
-                        default: hls.destroy(); break;
-                    }
-                }
-            });
-        } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-            videoEl.src = src;
-            videoEl.addEventListener('loadedmetadata', () => videoEl.play());
-        }
+    if (Hls.isSupported()) {
+        const hlsV = new Hls(); hlsV.loadSource(hlsSrc); hlsV.attachMedia(hlsVideo); hlsV.on(Hls.Events.MANIFEST_PARSED, () => hlsVideo.play());
+        const hlsA = new Hls(); hlsA.loadSource(radioSrc); hlsA.attachMedia(radioAudio);
     }
-
-    loadHLS(hlsVideo, hlsSrc);
-    loadHLS(radioAudio, radioSrc);
 
     setupButtonEvents(document);
 
@@ -133,7 +109,7 @@
         doc.getElementById('muteTab').onclick = (e) => { e.stopPropagation(); tabMuted = !tabMuted; updateUI('muteTab', tabMuted, '🔕', '🔔', 'is-muted'); };
         doc.getElementById('radioToggle').onclick = (e) => { e.stopPropagation(); radioOn = !radioOn; radioOn ? radioAudio.play() : radioAudio.pause(); updateUI('radioToggle', radioOn, '📻', '📻', 'is-active'); };
         doc.getElementById('fullFrameToggle').onclick = (e) => { e.stopPropagation(); fullFrame = !fullFrame; toggleFullFrameUI(); };
-        doc.getElementById('btnInvert').onclick = (e) => { e.stopPropagation(); invertOn = !invertOn; updateUI('btnInvert', invertOn, 'INV', 'INV', 'is-active'); };
+        doc.getElementById('btnInvert').onclick = (e) => { e.stopPropagation(); invertOn = !invertOn; updateUI('btnInvert', invertOn, 'INVERT', 'INVERT', 'is-active'); };
         doc.getElementById('btnGray').onclick = (e) => { e.stopPropagation(); grayOn = !grayOn; updateUI('btnGray', grayOn, 'GRAY', 'GRAY', 'is-active'); };
     }
 
@@ -141,16 +117,20 @@
         updateUI('fullFrameToggle', fullFrame, '📺', '📺', 'is-active');
         const display = fullFrame ? 'block' : 'none';
         
-        [document, (pipWindow ? pipWindow.document : null)].forEach(doc => {
-            if (!doc) return;
-            doc.getElementById('btnInvert').style.display = display;
-            doc.getElementById('btnGray').style.display = display;
+        [document, (pipWindow ? pipWindow.document : null)].forEach(d => {
+            if (!d) return;
+            const inv = d.getElementById('btnInvert');
+            const gry = d.getElementById('btnGray');
+            if(inv) inv.style.display = display;
+            if(gry) gry.style.display = display;
         });
 
+        // AUTO-RESIZE FEATURE
         if (pipWindow) {
             const targetW = fullFrame ? hlsVideo.videoWidth : canvas.width;
             const targetH = fullFrame ? hlsVideo.videoHeight : canvas.height;
-            pipWindow.resizeTo(Math.max(targetW, 300), Math.max(targetH + 60, 200));
+            // Buffer added for OS window chrome
+            pipWindow.resizeTo(Math.max(targetW, 250), Math.max(targetH + 50, 150));
         }
     }
 
@@ -179,6 +159,7 @@
             }
 
             canvas.width = sw; canvas.height = sh;
+            
             let filters = [];
             if (!isTriggered && !fullFrame) filters.push('grayscale(100%) brightness(0.7)');
             if (fullFrame) {
@@ -188,6 +169,7 @@
             ctx.filter = filters.length ? filters.join(' ') : 'none';
             ctx.drawImage(hlsVideo, sx, sy, sw, sh, 0, 0, sw, sh);
 
+            // Delta analysis logic
             if (!fullFrame) {
                 const cropData = ctx.getImageData(0, 0, sw, sh).data;
                 let cTotal = 0, cVarSum = 0;
@@ -207,28 +189,29 @@
 
     function playDigitalBell(isTest=false) { if(!isTest && (bellMuted || audioCooldown)) return; const vol = parseFloat(document.getElementById('volBell').value); if(vol <= 0) return; if(!audioCtx) audioCtx = new AudioContext(); const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain(); osc.frequency.setValueAtTime(523, audioCtx.currentTime); gain.gain.setValueAtTime(vol, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 1.0); osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 1.0); if(!isTest) { audioCooldown = true; setTimeout(() => audioCooldown = false, 2000); } }
     function playTabChirp(isTest=false) { if(!isTest && tabMuted) return; const vol = parseFloat(document.getElementById('volChirp').value); if(vol <= 0) return; if(!audioCtx) audioCtx = new AudioContext(); const now = audioCtx.currentTime; const blip = (f,s,d) => { const o = audioCtx.createOscillator(); const g = audioCtx.createGain(); o.frequency.setValueAtTime(f, now+s); g.gain.setValueAtTime(vol, now+s); g.gain.exponentialRampToValueAtTime(0.0001, now+s+d); o.connect(g); g.connect(audioCtx.destination); o.start(now+s); o.stop(now+s+d); }; blip(2000,0,0.05); blip(2500,0.1,0.05); blip(3000,0.2,0.2); }
-    async function startCapture() { try { sourceStream = await navigator.mediaDevices.getDisplayMedia({video: {displaySurface: "browser"}}); startAnalysis(); } catch(e) { console.error(e); } }
-    function updateThreshold(v) { currentThreshold = parseInt(v); document.getElementById('threshold-val').innerText = v; }
-    function updateAudioDelta(v) { audioDeltaThreshold = parseInt(v); document.getElementById('audio-delta-val').innerText = v; }
-    function startAnalysis() { const vA = document.createElement("video"); vA.srcObject = sourceStream; vA.play(); const aC = document.createElement("canvas"); const aX = aC.getContext("2d"); aC.width=50; aC.height=50; setInterval(() => { if(vA.readyState >= 2) { aX.drawImage(vA,0,0,50,50); const d = aX.getImageData(0,0,50,50).data; let t=0, vS=0; for(let i=0; i<d.length; i+=4) t+=(d[i]+d[i+1]+d[i+2])/3; const avg=t/(d.length/4); for(let i=0; i<d.length; i+=4) vS+=Math.pow(((d[i]+d[i+1]+d[i+2])/3)-avg, 2); const v = Math.round(vS/(d.length/4)); document.getElementById('live-variance').innerText = v; const trig = v > currentThreshold; if(trig !== isTriggered) { if(trig) playTabChirp(); isTriggered = trig; document.getElementById('canvasContainer').classList.toggle('active-border', isTriggered); } } }, 200); }
+    async function startCapture() { sourceStream = await navigator.mediaDevices.getDisplayMedia({video:true}); startAnalysis(); }
+    function updateThreshold(v) { currentThreshold = parseInt(v); }
+    function updateAudioDelta(v) { audioDeltaThreshold = parseInt(v); }
+    function startAnalysis() { const vA = document.createElement("video"); vA.srcObject = sourceStream; vA.play(); const aC = document.createElement("canvas"); const aX = aC.getContext("2d"); aC.width=50; aC.height=50; setInterval(() => { if(vA.readyState >= 2) { aX.drawImage(vA,0,0,50,50); const d = aX.getImageData(0,0,50,50).data; let t=0, vS=0; for(let i=0; i<d.length; i+=4) t+=(d[i]+d[i+1]+d[i+2])/3; const avg=t/(d.length/4); for(let i=0; i<d.length; i+=4) vS+=Math.pow(((d[i]+d[i+1]+d[i+2]) / 3)-avg, 2); const v = Math.round(vS/(d.length/4)); document.getElementById('live-variance').innerText = v; const trig = v > currentThreshold; if(trig !== isTriggered) { if(trig) playTabChirp(); isTriggered = trig; document.getElementById('canvasContainer').classList.toggle('active-border', isTriggered); } } }, 200); }
 
     async function openPip() {
         if (!window.documentPictureInPicture) return alert("PiP not supported");
-        pipWindow = await window.documentPictureInPicture.requestWindow({ width: canvas.width, height: canvas.height + 60 });
+        pipWindow = await window.documentPictureInPicture.requestWindow({ width: canvas.width, height: canvas.height + 40 });
         const container = document.getElementById('canvasContainer');
         const style = pipWindow.document.createElement('style');
         style.textContent = `
             body, html { margin: 0; padding: 0; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
             #canvasContainer { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; position: relative; }
-            canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
+            canvas { max-width: 100%; max-height: 100%; object-fit: contain; border: 2px solid #333; }
             .active-border canvas { border: 4px solid #ff0000 !important; }
             .icon-btn { position: absolute; width: 24px; height: 24px; background: rgba(0,0,0,0.6); color: white; font-size: 13px; display: flex; align-items: center; justify-content: center; border: none; border-radius: 4px; cursor: pointer; }
             .txt-btn { position: absolute; top: 6px; height: 20px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 0 6px; border-radius: 4px; cursor: pointer; border: none; z-index: 101; font-weight: bold; }
             #radioToggle { top: 6px; left: 6px; }
             #fullFrameToggle { top: 6px; right: 6px; }
-            #btnInvert { right: 70px; } #btnGray { right: 36px; }
             #muteBell { bottom: 6px; left: 6px; }
             #muteTab { bottom: 6px; right: 6px; }
+            #btnInvert { left: 40px; }
+            #btnGray { right: 40px; }
             .is-muted { color: #ff4444 !important; }
             .is-active { color: #00ff41 !important; box-shadow: 0 0 8px rgba(0,255,65,0.4); }
         `;
