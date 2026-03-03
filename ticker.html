@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stream Monitor - Natural Ratio</title>
+    <title>Stream Monitor - 3-Mode TV</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         body { font-family: -apple-system, sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
@@ -19,7 +19,7 @@
         .btn-pip { background: #0071e3; color: white; }
         
         .mode-row { display: flex; gap: 10px; margin-top: 10px; }
-        .btn-mode { flex: 1; padding: 10px; background: #444; color: white; border-radius: 8px; font-size: 12px; display: flex; align-items: center; justify-content: center; gap: 5px; }
+        .btn-mode { flex: 1; padding: 10px; background: #444; color: white; border-radius: 8px; font-size: 12px; display: flex; align-items: center; justify-content: center; gap: 5px; transition: all 0.2s; }
         
         #canvasContainer { margin-top: 20px; border: 2px solid #333; position: relative; line-height: 0; overflow: hidden; border-radius: 4px; background: #000; width: 613px; min-height: 50px; display: flex; align-items: center; justify-content: center; }
         .active-border { border-color: #ff0000 !important; border-width: 4px !important; }
@@ -28,13 +28,13 @@
         .slow-blur { filter: blur(25px) brightness(0.8); }
         video { display: none; }
 
-        /* Floating buttons - Anchored to Container edges, not video pixels */
+        /* Floating buttons anchored to CONTAINER corners */
         .icon-btn { position: absolute; width: 24px; height: 24px; border-radius: 4px; background: rgba(0,0,0,0.6); color: white; font-size: 13px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; z-index: 100; }
         .txt-btn { position: absolute; top: 6px; height: 20px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 0 6px; border-radius: 4px; cursor: pointer; border: none; z-index: 101; font-weight: bold; }
         
         #radioToggle { top: 6px; left: 6px; } #fullFrameToggle { top: 6px; right: 6px; }
         #muteBell { bottom: 6px; left: 6px; } #muteTab { bottom: 6px; right: 6px; }
-        #btnInvert { left: 35px; } #btnGray { left: 75px; } #btnTvAudio { right: 35px; }
+        #btnInvert { left: 35px; } #btnGray { left: 75px; }
 
         .is-active { background: #0071e3 !important; color: white !important; }
         .is-active-glow { color: #00ff41 !important; box-shadow: 0 0 8px rgba(0,255,65,0.4); }
@@ -47,8 +47,7 @@
     <h3>Stream Monitor</h3>
     
     <div class="mode-row">
-        <button id="dashTv" class="btn-mode">📺 TV Mode</button>
-        <button id="dashAud" class="btn-mode">🔊 AUD Stream</button>
+        <button id="dashTv" class="btn-mode">📺 TV Off</button>
     </div>
 
     <div class="control-group" style="margin-top:15px;">
@@ -89,7 +88,6 @@
     <div id="fullFrameToggle" class="icon-btn">📺</div>
     <button id="btnInvert" class="txt-btn" style="display:none;">INVERT</button>
     <button id="btnGray" class="txt-btn" style="display:none;">GRAY</button>
-    <button id="btnTvAudio" class="txt-btn" style="display:none;">AUD</button>
     <div id="muteBell" class="icon-btn">🔊</div>
     <div id="muteTab" class="icon-btn">🔔</div>
     <canvas id="cropCanvas"></canvas>
@@ -108,7 +106,8 @@
     const radioSrc = 'https://n-121-4.il.cdn-redge.media/livehls/oil/kancdn-live/live/radio/kan_reshet_bet/live.livx/playlist.m3u8?bitrate=192000&audioId=1&lang=pol&renditions';
     
     let sourceStream, currentThreshold = 150, audioDeltaThreshold = 300, blurThreshold = 40000;
-    let isTriggered = false, bellMuted = false, tabMuted = false, radioOn = false, fullFrame = false;
+    let isTriggered = false, bellMuted = false, tabMuted = false, radioOn = false;
+    let tvMode = 0; // 0: Off, 1: On (Mute), 2: On (Audio)
     let invertOn = false, grayOn = false, pipWindow = null;
     let audioCtx = null, lastCropVariance = 0, audioCooldown = false, lastFrameData = null;
     let globalVolume = 0.2;
@@ -130,24 +129,56 @@
         setClick('muteBell', (e) => { e.stopPropagation(); bellMuted = !bellMuted; updateUI('muteBell', bellMuted, '🔇', '🔊', 'is-muted'); });
         setClick('muteTab', (e) => { e.stopPropagation(); tabMuted = !tabMuted; updateUI('muteTab', tabMuted, '🔕', '🔔', 'is-muted'); });
         setClick('radioToggle', (e) => { e.stopPropagation(); radioOn = !radioOn; radioOn ? radioAudio.play() : radioAudio.pause(); updateUI('radioToggle', radioOn, '📻', '📻', 'is-active-glow'); });
-        const toggleTV = (e) => { e.stopPropagation(); fullFrame = !fullFrame; toggleFullFrameUI(); };
-        const toggleAUD = (e) => { e.stopPropagation(); hlsVideo.muted = !hlsVideo.muted; updateUI('btnTvAudio', !hlsVideo.muted, 'AUD', 'AUD', 'is-active-glow'); updateUI('dashAud', !hlsVideo.muted, '🔊 AUD Stream', '🔊 AUD Stream', 'is-active'); };
-        setClick('fullFrameToggle', toggleTV); setClick('dashTv', toggleTV);
-        setClick('btnTvAudio', toggleAUD); setClick('dashAud', toggleAUD);
+        
+        const cycleTV = (e) => { e.stopPropagation(); tvMode = (tvMode + 1) % 3; handleTVModeChange(); };
+        setClick('fullFrameToggle', cycleTV); 
+        setClick('dashTv', cycleTV);
+        
         setClick('btnInvert', (e) => { e.stopPropagation(); invertOn = !invertOn; updateUI('btnInvert', invertOn, 'INVERT', 'INVERT', 'is-active-glow'); });
         setClick('btnGray', (e) => { e.stopPropagation(); grayOn = !grayOn; updateUI('btnGray', grayOn, 'GRAY', 'GRAY', 'is-active-glow'); });
     }
 
-    function toggleFullFrameUI() {
-        updateUI('fullFrameToggle', fullFrame, '📺', '📺', 'is-active-glow');
-        updateUI('dashTv', fullFrame, '📺 TV Mode', '📺 TV Mode', 'is-active');
-        const display = fullFrame ? 'block' : 'none';
+    function handleTVModeChange() {
+        let label = "📺 TV Off";
+        let activeGlow = false;
+
+        if (tvMode === 1) { // TV ON - Mute
+            hlsVideo.muted = true;
+            label = "📺 TV On (Muted)";
+            activeGlow = true;
+        } else if (tvMode === 2) { // TV ON - Audio
+            hlsVideo.muted = false;
+            label = "🔊 TV On (Audio)";
+            activeGlow = true;
+        } else { // TV OFF
+            hlsVideo.muted = true;
+            label = "📺 TV Off";
+            activeGlow = false;
+        }
+
+        updateUI('dashTv', activeGlow, label, label, 'is-active');
+        updateUI('fullFrameToggle', activeGlow, '📺', '📺', 'is-active-glow');
+
+        // Layout visibility
+        const showControls = tvMode > 0 ? 'block' : 'none';
         [document, (pipWindow ? pipWindow.document : null)].forEach(d => {
             if (!d) return;
-            ['btnInvert', 'btnGray', 'btnTvAudio'].forEach(id => {
-                const el = d.getElementById(id); if(el) el.style.setProperty('display', display, 'important');
+            ['btnInvert', 'btnGray'].forEach(id => {
+                const el = d.getElementById(id); if(el) el.style.setProperty('display', showControls, 'important');
             });
         });
+
+        // Resize Logic
+        if (pipWindow) {
+            if (tvMode > 0) {
+                pipWindow.resizeTo(613, 345 + 60);
+            } else {
+                pipWindow.resizeTo(613, 88); 
+                const screenW = window.screen.availWidth;
+                const screenH = window.screen.availHeight;
+                pipWindow.moveTo(screenW - 613, screenH - 88);
+            }
+        }
     }
 
     function updateUI(id, state, activeTxt, inactiveTxt, className) {
@@ -159,7 +190,7 @@
         if (hlsVideo.readyState >= 2) {
             const vW = hlsVideo.videoWidth, vH = hlsVideo.videoHeight;
             let sx, sy, sw, sh;
-            if (fullFrame) { sx = 0; sy = 0; sw = vW; sh = vH; } 
+            if (tvMode > 0) { sx = 0; sy = 0; sw = vW; sh = vH; } 
             else {
                 const t = document.getElementById('t_num').value/100, b = document.getElementById('b_num').value/100;
                 const l = document.getElementById('l_num').value/100, r = document.getElementById('r_num').value/100;
@@ -170,9 +201,8 @@
 
             ctx.drawImage(hlsVideo, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
 
-            if (!fullFrame) {
+            if (tvMode === 0) {
                 const d = ctx.getImageData(0,0,canvas.width,canvas.height).data;
-                // 1. Live Jump Logic
                 let t=0, vs=0; for(let i=0; i<d.length; i+=4) t+=(d[i]+d[i+1]+d[i+2])/3;
                 const avg=t/(d.length/4); for(let i=0; i<d.length; i+=4) vs+=Math.pow(((d[i]+d[i+1]+d[i+2])/3)-avg, 2);
                 const v = Math.round(vs/(d.length/4));
@@ -181,7 +211,6 @@
                 if (delta > audioDeltaThreshold) playDigitalBell();
                 lastCropVariance = v;
 
-                // 2. Slow Motion Blur
                 if (lastFrameData) {
                     let motion = 0; for (let i = 0; i < d.length; i += 16) motion += Math.abs(d[i] - lastFrameData[i]);
                     let motEl = document.getElementById('live-motion-val'); if(motEl) motEl.innerText = motion;
@@ -189,7 +218,6 @@
                 }
                 lastFrameData = d;
                 
-                // Final Gray/Brightness filter for crop
                 let f = isTriggered ? [] : ['grayscale(100%) brightness(0.7)'];
                 ctx.filter = f.length ? f.join(' ') : 'none';
                 ctx.drawImage(hlsVideo, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
@@ -238,12 +266,13 @@
             .txt-btn { position: absolute; top: 6px; height: 20px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 0 6px; border-radius: 4px; cursor: pointer; border: none; z-index: 101; font-weight: bold; }
             #radioToggle { top: 6px; left: 6px; } #fullFrameToggle { top: 6px; right: 6px; }
             #muteBell { bottom: 6px; left: 6px; } #muteTab { bottom: 6px; right: 6px; }
-            #btnInvert { left: 35px; } #btnGray { left: 75px; } #btnTvAudio { right: 35px; }
+            #btnInvert { left: 35px; } #btnGray { left: 75px; }
             .is-muted { color: #ff4444 !important; } .is-active-glow { color: #00ff41 !important; box-shadow: 0 0 8px rgba(0,255,65,0.4); }
         `;
         pipWindow.document.head.appendChild(style);
         pipWindow.document.body.appendChild(container);
         setupButtonEvents(pipWindow.document);
+        handleTVModeChange(); // Ensure size is correct on open
         pipWindow.addEventListener("pagehide", () => { document.body.appendChild(container); setupButtonEvents(document); pipWindow = null; });
     }
 </script>
