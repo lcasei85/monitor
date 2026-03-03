@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stream Monitor - Locked Width</title>
+    <title>Stream Monitor - No Stretch</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         body { font-family: -apple-system, sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
@@ -25,11 +25,11 @@
         
         #canvasContainer { margin-top: 20px; border: 2px solid #333; position: relative; line-height: 0; overflow: hidden; border-radius: 4px; background: #000; width: 613px; }
         .active-border { border-color: #ff0000 !important; border-width: 4px !important; }
-        canvas { width: 613px; height: auto; display: block; margin: 0 auto; }
+        canvas { width: 613px; display: block; margin: 0 auto; image-rendering: -webkit-optimize-contrast; }
         video { display: none; }
 
         .icon-btn { position: absolute; width: 24px; height: 24px; border-radius: 4px; background: rgba(0,0,0,0.6); color: white; font-size: 13px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; z-index: 100; }
-        .txt-btn { position: absolute; top: 6px; height: 20px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 0 6px; border-radius: 4px; cursor: pointer; border: none; z-index: 101; display: none; font-weight: bold; }
+        .txt-btn { position: absolute; top: 6px; height: 20px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 0 6px; border-radius: 4px; cursor: pointer; border: none; z-index: 101; font-weight: bold; }
         
         #radioToggle { top: 6px; left: 6px; } #fullFrameToggle { top: 6px; right: 6px; }
         #muteBell { bottom: 6px; left: 6px; } #muteTab { bottom: 6px; right: 6px; }
@@ -122,7 +122,7 @@
 
     function setupButtonEvents(doc) {
         const setClick = (id, fn) => { const el = doc.getElementById(id); if(el) el.onclick = fn; };
-        setClick('muteBell', (e) => { e.stopPropagation(); bellMuted = !bellMuted; updateUI('muteBell', bellMuted, '🔇', '🔊', 'is-muted'); });
+        setClick('muteBell', (e) => { e.stopPropagation(); bellMuted = !bellMuted; updateUI('muteBell', bellMuted, '制', '🔊', 'is-muted'); });
         setClick('muteTab', (e) => { e.stopPropagation(); tabMuted = !tabMuted; updateUI('muteTab', tabMuted, '🔕', '🔔', 'is-muted'); });
         setClick('radioToggle', (e) => { e.stopPropagation(); radioOn = !radioOn; radioOn ? radioAudio.play() : radioAudio.pause(); updateUI('radioToggle', radioOn, '📻', '📻', 'is-active-glow'); });
         
@@ -153,12 +153,10 @@
         });
 
         if (pipWindow) {
-            const width = 613; // LOCKED WIDTH
             if (fullFrame) {
-                // Adjust height to keep 16:9 ratio at 613px width (~345px) + chrome
-                pipWindow.resizeTo(width, 345 + 50);
+                pipWindow.resizeTo(613, 345 + 50);
             } else {
-                pipWindow.resizeTo(width, 82 + 50); 
+                pipWindow.resizeTo(613, 82 + 50); 
                 const screenW = window.screen.availWidth;
                 const screenH = window.screen.availHeight;
                 pipWindow.moveTo(screenW - 625, screenH - 140);
@@ -182,18 +180,27 @@
         if (hlsVideo.readyState >= 2) {
             const vW = hlsVideo.videoWidth, vH = hlsVideo.videoHeight;
             let sx, sy, sw, sh;
-            if (fullFrame) { sx = 0; sy = 0; sw = vW; sh = vH; } 
-            else {
+            
+            if (fullFrame) { 
+                sx = 0; sy = 0; sw = vW; sh = vH; 
+                canvas.height = 345;
+            } else {
                 const t = document.getElementById('t_num').value/100, b = document.getElementById('b_num').value/100;
                 const l = document.getElementById('l_num').value/100, r = document.getElementById('r_num').value/100;
                 sx = vW * l; sy = vH * t; sw = Math.max(vW * (1-l-r), 1); sh = Math.max(vH * (1-t-b), 1);
+                canvas.height = 82;
             }
-            canvas.width = 613; // Enforce canvas drawing width
-            canvas.height = fullFrame ? 345 : 82;
+            
+            canvas.width = 613;
+
             let f = [];
             if (!isTriggered && !fullFrame) f.push('grayscale(100%) brightness(0.7)');
             if (fullFrame) { if (invertOn) f.push('invert(1)'); if (grayOn) f.push('grayscale(1)'); }
+            
             ctx.filter = f.length ? f.join(' ') : 'none';
+            
+            // Scaled Drawing to prevent stretching
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(hlsVideo, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
 
             if (!fullFrame) {
@@ -225,7 +232,7 @@
         style.textContent = `
             body, html { margin: 0; padding: 0; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
             #canvasContainer { width: 613px; height: 100%; display: flex; align-items: center; justify-content: center; position: relative; }
-            canvas { width: 613px; max-height: 100%; object-fit: contain; }
+            canvas { width: 613px; max-height: 100%; }
             .active-border canvas { border: 4px solid #ff0000 !important; }
             .icon-btn { position: absolute; width: 24px; height: 24px; background: rgba(0,0,0,0.6); color: white; font-size: 13px; display: flex; align-items: center; justify-content: center; border: none; border-radius: 4px; cursor: pointer; }
             .txt-btn { position: absolute; top: 6px; height: 20px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 0 6px; border-radius: 4px; cursor: pointer; border: none; z-index: 101; font-weight: bold; }
