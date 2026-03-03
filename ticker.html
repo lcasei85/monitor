@@ -71,8 +71,8 @@
 </div>
 
 <div id="canvasContainer">
-    <div id="muteBell" class="mute-btn" onclick="toggleMute('bell')">🔊</div>
-    <div id="muteTab" class="mute-btn" onclick="toggleMute('tab')">🔔</div>
+    <div id="muteBell" class="mute-btn">🔊</div>
+    <div id="muteTab" class="mute-btn">🔔</div>
     <canvas id="cropCanvas"></canvas>
 </div>
 
@@ -88,6 +88,10 @@
     let isTriggered = false, bellMuted = false, tabMuted = false, pipWindow = null;
     let audioCtx = null, lastCropVariance = 0, audioCooldown = false, colorChangeLock = false;
 
+    // Attach local click listeners
+    document.getElementById('muteBell').addEventListener('click', () => toggleMute('bell'));
+    document.getElementById('muteTab').addEventListener('click', () => toggleMute('tab'));
+
     function toggleMute(type) {
         if (type === 'bell') {
             bellMuted = !bellMuted;
@@ -100,8 +104,10 @@
 
     function updateMuteUI(id, state, onIcon, offIcon) {
         const icon = state ? offIcon : onIcon;
-        document.getElementById(id).innerText = icon;
-        document.getElementById(id).classList.toggle('is-muted', state);
+        const btn = document.getElementById(id);
+        btn.innerText = icon;
+        btn.classList.toggle('is-muted', state);
+        
         if (pipWindow) {
             const pipBtn = pipWindow.document.getElementById(id);
             if (pipBtn) {
@@ -155,7 +161,7 @@
 
     async function startCapture() {
         try {
-            sourceStream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: "browser", frameRate: 1 }, audio: false });
+            sourceStream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: "browser", frameRate: 5 }, audio: false });
             startAnalysis();
         } catch (err) { console.error(err); }
     }
@@ -183,7 +189,6 @@
 
                 const triggeredNow = variance > currentThreshold;
                 if (triggeredNow !== isTriggered) {
-                    // Logic: Only play chirp if the state moves from FALSE (Low Var) to TRUE (High Var)
                     if (triggeredNow === true) playTabChirp();
                     isTriggered = triggeredNow;
                     document.getElementById('canvasContainer').classList.toggle('active-border', isTriggered);
@@ -221,6 +226,7 @@
     async function openPip() {
         if (!window.documentPictureInPicture) return alert("PiP not supported");
         pipWindow = await window.documentPictureInPicture.requestWindow({ width: canvas.width, height: canvas.height });
+        
         const container = document.getElementById('canvasContainer');
         const style = pipWindow.document.createElement('style');
         style.textContent = `
@@ -235,7 +241,18 @@
         `;
         pipWindow.document.head.appendChild(style);
         pipWindow.document.body.appendChild(container);
-        pipWindow.addEventListener("pagehide", () => { document.body.appendChild(container); pipWindow = null; });
+
+        // RE-ATTACH LISTENERS in the PiP Window context
+        const pipBell = pipWindow.document.getElementById('muteBell');
+        const pipTab = pipWindow.document.getElementById('muteTab');
+        
+        pipBell.addEventListener('click', () => toggleMute('bell'));
+        pipTab.addEventListener('click', () => toggleMute('tab'));
+
+        pipWindow.addEventListener("pagehide", () => {
+            document.body.appendChild(container);
+            pipWindow = null;
+        });
     }
 </script>
 </body>
