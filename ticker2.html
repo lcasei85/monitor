@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stream Monitor - Adaptive UI & Auto-Resize</title>
+    <title>Stream Monitor - Precision Control</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         body { font-family: -apple-system, sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
@@ -21,22 +21,29 @@
         .btn-capture { background: #fff; color: #000; }
         .btn-pip { background: #0071e3; color: white; }
         
+        /* Dashboard Row for TV/AUD */
+        .mode-row { display: flex; gap: 10px; margin-top: 10px; }
+        .btn-mode { flex: 1; padding: 10px; background: #444; color: white; border-radius: 8px; font-size: 12px; display: flex; align-items: center; justify-content: center; gap: 5px; }
+        
         #canvasContainer { margin-top: 20px; border: 2px solid #333; position: relative; line-height: 0; overflow: hidden; border-radius: 4px; background: #000; }
         .active-border { border-color: #ff0000 !important; border-width: 4px !important; }
         canvas { max-width: 100%; height: auto; display: block; margin: 0 auto; }
         video { display: none; }
 
         .icon-btn { position: absolute; width: 24px; height: 24px; border-radius: 4px; background: rgba(0,0,0,0.6); color: white; font-size: 13px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; z-index: 100; }
-        .txt-btn { position: absolute; top: 6px; height: 20px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 0 6px; border-radius: 4px; cursor: pointer; border: none; z-index: 101; display: none; font-weight: bold; }
+        .txt-btn { position: absolute; top: 6px; height: 20px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 0 6px; border-radius: 4px; cursor: pointer; border: none; z-index: 101; font-weight: bold; }
         
         #radioToggle { top: 6px; left: 6px; }
         #fullFrameToggle { top: 6px; right: 6px; }
         #muteBell { bottom: 6px; left: 6px; }
         #muteTab { bottom: 6px; right: 6px; }
-        #btnInvert { left: 40px; }
-        #btnGray { right: 40px; }
+        
+        #btnInvert { left: 35px; }
+        #btnGray { left: 75px; }
+        #btnTvAudio { right: 35px; }
 
-        .is-active { color: #00ff41 !important; box-shadow: 0 0 8px rgba(0,255,65,0.4); }
+        .is-active { background: #0071e3 !important; color: white !important; }
+        .is-active-glow { color: #00ff41 !important; box-shadow: 0 0 8px rgba(0,255,65,0.4); }
         .is-muted { color: #ff4444 !important; }
     </style>
 </head>
@@ -44,6 +51,12 @@
 
 <div class="card">
     <h3>Stream Monitor</h3>
+    
+    <div class="mode-row">
+        <button id="dashTv" class="btn-mode">📺 TV Mode</button>
+        <button id="dashAud" class="btn-mode">🔊 AUD Stream</button>
+    </div>
+
     <div class="controls-grid">
         <div class="control-group">Top % <input type="number" id="t_num" value="79"></div>
         <div class="control-group">Bot % <input type="number" id="b_num" value="10"></div>
@@ -72,8 +85,11 @@
 <div id="canvasContainer">
     <div id="radioToggle" class="icon-btn">📻</div>
     <div id="fullFrameToggle" class="icon-btn">📺</div>
-    <button id="btnInvert" class="txt-btn">INVERT</button>
-    <button id="btnGray" class="txt-btn">GRAY</button>
+    
+    <button id="btnInvert" class="txt-btn" style="display:none;">INVERT</button>
+    <button id="btnGray" class="txt-btn" style="display:none;">GRAY</button>
+    <button id="btnTvAudio" class="txt-btn" style="display:none;">AUD</button>
+
     <div id="muteBell" class="icon-btn">🔊</div>
     <div id="muteTab" class="icon-btn">🔔</div>
     <canvas id="cropCanvas"></canvas>
@@ -81,64 +97,95 @@
 
 <video id="hlsVideo" muted playsinline crossorigin="anonymous"></video>
 <audio id="radioAudio" crossorigin="anonymous"></audio>
+<audio id="tvAudio" crossorigin="anonymous"></audio>
 
 <script>
     const hlsVideo = document.getElementById('hlsVideo');
     const radioAudio = document.getElementById('radioAudio');
+    const tvAudio = document.getElementById('tvAudio');
     const canvas = document.getElementById('cropCanvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     
-    // Using your known working links
     const hlsSrc = 'https://n-121-7.il.cdn-redge.media/livehls/oil/kancdn-live/live/kan11/live.livx/playlist.m3u8?bitrate=2940000&videoId=4&renditions&fmp4';
     const radioSrc = 'https://n-121-4.il.cdn-redge.media/livehls/oil/kancdn-live/live/radio/kan_reshet_bet/live.livx/playlist.m3u8?bitrate=192000&audioId=1&lang=pol&renditions';
+    const tvAudioSrc = 'https://n-121-7.il.cdn-redge.media/livehls/oil/kancdn-live/live/kan11/live.livx/playlist.m3u8?bitrate=192000&audioId=1&lang=pol&renditions&fmp4';
     
     let sourceStream, currentThreshold = 150, audioDeltaThreshold = 300;
     let isTriggered = false, bellMuted = false, tabMuted = false, radioOn = false, fullFrame = false;
-    let invertOn = false, grayOn = false, pipWindow = null;
+    let invertOn = false, grayOn = false, tvAudioOn = false, pipWindow = null;
     let audioCtx = null, lastCropVariance = 0, audioCooldown = false;
+    
+    // Memory for window position
+    let lastPipPos = { x: 100, y: 100 };
 
     if (Hls.isSupported()) {
         const hlsV = new Hls(); hlsV.loadSource(hlsSrc); hlsV.attachMedia(hlsVideo); hlsV.on(Hls.Events.MANIFEST_PARSED, () => hlsVideo.play());
         const hlsA = new Hls(); hlsA.loadSource(radioSrc); hlsA.attachMedia(radioAudio);
+        const hlsT = new Hls(); hlsT.loadSource(tvAudioSrc); hlsT.attachMedia(tvAudio);
     }
 
     setupButtonEvents(document);
 
     function setupButtonEvents(doc) {
-        doc.getElementById('muteBell').onclick = (e) => { e.stopPropagation(); bellMuted = !bellMuted; updateUI('muteBell', bellMuted, '🔇', '🔊', 'is-muted'); };
-        doc.getElementById('muteTab').onclick = (e) => { e.stopPropagation(); tabMuted = !tabMuted; updateUI('muteTab', tabMuted, '🔕', '🔔', 'is-muted'); };
-        doc.getElementById('radioToggle').onclick = (e) => { e.stopPropagation(); radioOn = !radioOn; radioOn ? radioAudio.play() : radioAudio.pause(); updateUI('radioToggle', radioOn, '📻', '📻', 'is-active'); };
-        doc.getElementById('fullFrameToggle').onclick = (e) => { e.stopPropagation(); fullFrame = !fullFrame; toggleFullFrameUI(); };
-        doc.getElementById('btnInvert').onclick = (e) => { e.stopPropagation(); invertOn = !invertOn; updateUI('btnInvert', invertOn, 'INVERT', 'INVERT', 'is-active'); };
-        doc.getElementById('btnGray').onclick = (e) => { e.stopPropagation(); grayOn = !grayOn; updateUI('btnGray', grayOn, 'GRAY', 'GRAY', 'is-active'); };
+        const setClick = (id, fn) => { const el = doc.getElementById(id); if(el) el.onclick = fn; };
+
+        setClick('muteBell', (e) => { e.stopPropagation(); bellMuted = !bellMuted; updateUI('muteBell', bellMuted, '制', '🔊', 'is-muted'); });
+        setClick('muteTab', (e) => { e.stopPropagation(); tabMuted = !tabMuted; updateUI('muteTab', tabMuted, '🔕', '🔔', 'is-muted'); });
+        setClick('radioToggle', (e) => { e.stopPropagation(); radioOn = !radioOn; radioOn ? radioAudio.play() : radioAudio.pause(); updateUI('radioToggle', radioOn, '📻', '📻', 'is-active-glow'); });
+        
+        // Combined Toggle Logic
+        const toggleTV = (e) => { e.stopPropagation(); fullFrame = !fullFrame; toggleFullFrameUI(); };
+        const toggleAUD = (e) => { e.stopPropagation(); tvAudioOn = !tvAudioOn; tvAudioOn ? tvAudio.play() : tvAudio.pause(); updateUI('btnTvAudio', tvAudioOn, 'AUD', 'AUD', 'is-active-glow'); updateUI('dashAud', tvAudioOn, '🔊 AUD Stream', '🔊 AUD Stream', 'is-active'); };
+
+        setClick('fullFrameToggle', toggleTV);
+        setClick('dashTv', toggleTV);
+        setClick('btnTvAudio', toggleAUD);
+        setClick('dashAud', toggleAUD);
+
+        setClick('btnInvert', (e) => { e.stopPropagation(); invertOn = !invertOn; updateUI('btnInvert', invertOn, 'INVERT', 'INVERT', 'is-active-glow'); });
+        setClick('btnGray', (e) => { e.stopPropagation(); grayOn = !grayOn; updateUI('btnGray', grayOn, 'GRAY', 'GRAY', 'is-active-glow'); });
     }
 
     function toggleFullFrameUI() {
-        updateUI('fullFrameToggle', fullFrame, '📺', '📺', 'is-active');
+        updateUI('fullFrameToggle', fullFrame, '📺', '📺', 'is-active-glow');
+        updateUI('dashTv', fullFrame, '📺 TV Mode', '📺 TV Mode', 'is-active');
+        
         const display = fullFrame ? 'block' : 'none';
         
         [document, (pipWindow ? pipWindow.document : null)].forEach(d => {
             if (!d) return;
-            const inv = d.getElementById('btnInvert');
-            const gry = d.getElementById('btnGray');
-            if(inv) inv.style.display = display;
-            if(gry) gry.style.display = display;
+            ['btnInvert', 'btnGray', 'btnTvAudio'].forEach(id => {
+                const el = d.getElementById(id);
+                if(el) el.style.setProperty('display', display, 'important');
+            });
         });
 
-        // AUTO-RESIZE FEATURE
         if (pipWindow) {
-            const targetW = fullFrame ? hlsVideo.videoWidth : canvas.width;
-            const targetH = fullFrame ? hlsVideo.videoHeight : canvas.height;
-            // Buffer added for OS window chrome
-            pipWindow.resizeTo(Math.max(targetW, 250), Math.max(targetH + 50, 150));
+            if (fullFrame) {
+                // Save position before enlarging
+                lastPipPos.x = pipWindow.screenX;
+                lastPipPos.y = pipWindow.screenY;
+                pipWindow.resizeTo(hlsVideo.videoWidth || 1280, (hlsVideo.videoHeight || 720) + 60);
+            } else {
+                // Restore to original size and original location
+                const vW = hlsVideo.videoWidth || 1280;
+                const vH = hlsVideo.videoHeight || 720;
+                const t = document.getElementById('t_num').value/100, b = document.getElementById('b_num').value/100;
+                const l = document.getElementById('l_num').value/100, r = document.getElementById('r_num').value/100;
+                const sw = Math.max(vW * (1 - l - r), 1);
+                const sh = Math.max(vH * (1 - t - b), 1);
+                
+                pipWindow.resizeTo(Math.max(sw, 250), Math.max(sh + 60, 150));
+                pipWindow.moveTo(lastPipPos.x, lastPipPos.y);
+            }
         }
     }
 
-    function updateUI(id, state, activeIcon, inactiveIcon, className) {
+    function updateUI(id, state, activeTxt, inactiveTxt, className) {
         const up = (d) => {
             const el = d.getElementById(id);
             if (!el) return;
-            el.innerText = state ? activeIcon : inactiveIcon;
+            el.innerText = state ? activeTxt : inactiveTxt;
             state ? el.classList.add(className) : el.classList.remove(className);
         };
         up(document);
@@ -149,17 +196,13 @@
         if (hlsVideo.readyState >= 2) {
             const vW = hlsVideo.videoWidth, vH = hlsVideo.videoHeight;
             let sx, sy, sw, sh;
-
-            if (fullFrame) {
-                sx = 0; sy = 0; sw = vW; sh = vH;
-            } else {
+            if (fullFrame) { sx = 0; sy = 0; sw = vW; sh = vH; } 
+            else {
                 const t = document.getElementById('t_num').value / 100, b = document.getElementById('b_num').value / 100;
                 const l = document.getElementById('l_num').value / 100, r = document.getElementById('r_num').value / 100;
                 sx = vW * l; sy = vH * t; sw = Math.max(vW * (1 - l - r), 1); sh = Math.max(vH * (1 - t - b), 1);
             }
-
             canvas.width = sw; canvas.height = sh;
-            
             let filters = [];
             if (!isTriggered && !fullFrame) filters.push('grayscale(100%) brightness(0.7)');
             if (fullFrame) {
@@ -169,7 +212,6 @@
             ctx.filter = filters.length ? filters.join(' ') : 'none';
             ctx.drawImage(hlsVideo, sx, sy, sw, sh, 0, 0, sw, sh);
 
-            // Delta analysis logic
             if (!fullFrame) {
                 const cropData = ctx.getImageData(0, 0, sw, sh).data;
                 let cTotal = 0, cVarSum = 0;
@@ -196,13 +238,13 @@
 
     async function openPip() {
         if (!window.documentPictureInPicture) return alert("PiP not supported");
-        pipWindow = await window.documentPictureInPicture.requestWindow({ width: canvas.width, height: canvas.height + 40 });
+        pipWindow = await window.documentPictureInPicture.requestWindow({ width: canvas.width, height: canvas.height + 60 });
         const container = document.getElementById('canvasContainer');
         const style = pipWindow.document.createElement('style');
         style.textContent = `
             body, html { margin: 0; padding: 0; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
             #canvasContainer { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; position: relative; }
-            canvas { max-width: 100%; max-height: 100%; object-fit: contain; border: 2px solid #333; }
+            canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
             .active-border canvas { border: 4px solid #ff0000 !important; }
             .icon-btn { position: absolute; width: 24px; height: 24px; background: rgba(0,0,0,0.6); color: white; font-size: 13px; display: flex; align-items: center; justify-content: center; border: none; border-radius: 4px; cursor: pointer; }
             .txt-btn { position: absolute; top: 6px; height: 20px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 0 6px; border-radius: 4px; cursor: pointer; border: none; z-index: 101; font-weight: bold; }
@@ -210,18 +252,14 @@
             #fullFrameToggle { top: 6px; right: 6px; }
             #muteBell { bottom: 6px; left: 6px; }
             #muteTab { bottom: 6px; right: 6px; }
-            #btnInvert { left: 40px; }
-            #btnGray { right: 40px; }
+            #btnInvert { left: 35px; } #btnGray { left: 75px; } #btnTvAudio { right: 35px; }
             .is-muted { color: #ff4444 !important; }
-            .is-active { color: #00ff41 !important; box-shadow: 0 0 8px rgba(0,255,65,0.4); }
+            .is-active-glow { color: #00ff41 !important; box-shadow: 0 0 8px rgba(0,255,65,0.4); }
         `;
         pipWindow.document.head.appendChild(style);
         pipWindow.document.body.appendChild(container);
         
-        const currentDisplay = fullFrame ? 'block' : 'none';
-        pipWindow.document.getElementById('btnInvert').style.display = currentDisplay;
-        pipWindow.document.getElementById('btnGray').style.display = currentDisplay;
-
+        toggleFullFrameUI(); // Sync visibility immediately
         setupButtonEvents(pipWindow.document);
         pipWindow.addEventListener("pagehide", () => { document.body.appendChild(container); setupButtonEvents(document); pipWindow = null; });
     }
