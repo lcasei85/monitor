@@ -25,6 +25,9 @@
         .active-border { border-color: #ff0000 !important; }
         canvas { max-width: 100%; height: auto; }
         video { display: none; }
+
+        /* Audio Control UI */
+        .audio-section { border-top: 1px solid #444; margin-top: 15px; padding-top: 15px; }
     </style>
 </head>
 <body>
@@ -45,11 +48,20 @@
     <button class="btn-capture" onclick="startCapture()">Capture Target Tab</button>
     
     <div class="control-group" style="margin-top:10px;">
-        <label>Sensitivity: <b id="threshold-val">150</b></label>
+        <label>Tab Sensitivity (Color): <b id="threshold-val">150</b></label>
         <input type="range" id="variance-slider" min="0" max="2000" value="150" style="width:100%" oninput="updateThreshold(this.value)">
         <div class="stats">
-            <span>Variance:</span>
+            <span>Tab Var:</span>
             <span id="live-variance">0</span>
+        </div>
+    </div>
+
+    <div class="control-group audio-section">
+        <label>Crop Sensitivity (Audio): <b id="audio-threshold-val">500</b></label>
+        <input type="range" id="audio-variance-slider" min="0" max="10000" value="500" style="width:100%" oninput="updateAudioThreshold(this.value)">
+        <div class="stats">
+            <span>Crop Var:</span>
+            <span id="crop-live-variance">0</span>
         </div>
     </div>
 
@@ -71,7 +83,28 @@
     
     let sourceStream; // The Captured Tab
     let currentThreshold = 150;
+    let audioThreshold = 500;
     let isTriggered = false;
+    let audioCtx = null;
+    let audioCooldown = false;
+
+    // --- AUDIO ALERT FUNCTION ---
+    function playBeep() {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCooldown) return;
+        
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.value = 880; 
+        gain.gain.value = 0.1;
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.1);
+        
+        audioCooldown = true;
+        setTimeout(() => audioCooldown = false, 1000); // Prevent beep spam
+    }
 
     // --- 1. HLS INITIALIZATION ---
     if (Hls.isSupported()) {
@@ -98,6 +131,11 @@
         document.getElementById('threshold-val').innerText = val;
     }
 
+    function updateAudioThreshold(val) {
+        audioThreshold = parseInt(val);
+        document.getElementById('audio-threshold-val').innerText = val;
+    }
+
     // --- 3. ANALYSIS LOOP (Checks Variance of Captured Tab) ---
     function startAnalysis() {
         const vAnalyze = document.createElement("video");
@@ -106,31 +144,24 @@
 
         const analysisCanvas = document.createElement("canvas");
         const aCtx = analysisCanvas.getContext("2d", {willReadFrequently: true});
-        analysisCanvas.width = 50; // Small size for performance
+        analysisCanvas.width = 50; 
         analysisCanvas.height = 50;
 
         setInterval(() => {
             if (vAnalyze.readyState >= 2) {
                 aCtx.drawImage(vAnalyze, 0, 0, 50, 50);
                 const data = aCtx.getImageData(0, 0, 50, 50).data;
-                
                 let total = 0, varSum = 0;
-                const pixelCount = data.length / 4;
-
                 for (let i = 0; i < data.length; i += 4) {
                     total += (data[i] + data[i+1] + data[i+2]) / 3;
                 }
-                const avg = total / pixelCount;
-
+                const avg = total / (data.length/4);
                 for (let i = 0; i < data.length; i += 4) {
-                    const brightness = (data[i] + data[i+1] + data[i+2]) / 3;
-                    varSum += Math.pow(brightness - avg, 2);
+                    varSum += Math.pow(((data[i] + data[i+1] + data[i+2]) / 3) - avg, 2);
                 }
-                
-                const variance = Math.round(varSum / pixelCount);
+                const variance = Math.round(varSum / (data.length/4));
                 document.getElementById('live-variance').innerText = variance;
 
-                // --- THE AUTOMATION TRIGGER ---
                 if (variance > currentThreshold) {
                     isTriggered = true;
                     document.getElementById('live-variance').style.color = "red";
@@ -144,83 +175,69 @@
         }, 200); 
     }
 
-    // --- 4. MAIN RENDER LOOP (Applies Filters based on Trigger) ---
+    // --- 4. MAIN RENDER LOOP + CROP ANALYSIS ---
     function drawMain() {
         if (hlsVideo.readyState >= 2) {
             const vW = hlsVideo.videoWidth;
             const vH = hlsVideo.videoHeight;
-
             const t = parseFloat(document.getElementById('t_num').value) / 100;
             const b = parseFloat(document.getElementById('b_num').value) / 100;
             const l = parseFloat(document.getElementById('l_num').value) / 100;
             const r = parseFloat(document.getElementById('r_num').value) / 100;
 
-            const sx = vW * l;
-            const sy = vH * t;
+            const sx = vW * l, sy = vH * t;
             const sWidth = Math.max(vW * (1 - l - r), 1);
             const sHeight = Math.max(vH * (1 - t - b), 1);
 
             canvas.width = sWidth;
             canvas.height = sHeight;
 
-            // --- COLOR CHANGE LOGIC ---
-            // If triggered: Normal Color. If quiet: Grayscale.
             ctx.filter = isTriggered ? 'none' : 'grayscale(100%) brightness(0.7)';
-            
-            // Draw the HLS stream
             ctx.drawImage(hlsVideo, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
+
+            // --- CROP VARIANCE ANALYSIS FOR AUDIO ---
+            const cropData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            let cTotal = 0, cVarSum = 0;
+            for (let i = 0; i < cropData.length; i += 4) {
+                cTotal += (cropData[i] + cropData[i+1] + cropData[i+2]) / 3;
+            }
+            const cAvg = cTotal / (cropData.length/4);
+            for (let i = 0; i < cropData.length; i += 4) {
+                cVarSum += Math.pow(((cropData[i] + cropData[i+1] + cropData[i+2]) / 3) - cAvg, 2);
+            }
+            const cropVariance = Math.round(cVarSum / (cropData.length/4));
+            document.getElementById('crop-live-variance').innerText = cropVariance;
+
+            if (cropVariance > audioThreshold) {
+                playBeep();
+                document.getElementById('crop-live-variance').style.color = "orange";
+            } else {
+                document.getElementById('crop-live-variance').style.color = "white";
+            }
         }
         requestAnimationFrame(drawMain);
     }
     hlsVideo.addEventListener('play', drawMain);
 
     // --- 5. DOCUMENT PIP ---
-async function openPip() {
-    if (!window.documentPictureInPicture) return alert("PiP not supported");
-    
-    const pipWin = await window.documentPictureInPicture.requestWindow({ 
-        width: canvas.width, 
-        height: canvas.height 
-    });
-
-    const container = document.getElementById('canvasContainer');
-    
-    // Inject Styles into the New Window to handle resizing
-    const style = pipWin.document.createElement('style');
-    style.textContent = `
-        body, html { 
-            margin: 0; 
-            padding: 0; 
-            width: 100%; 
-            height: 100%; 
-            background: #000; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center;
-            overflow: hidden;
-        }
-        #canvasContainer { 
-            width: 100%; 
-            height: 100%; 
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        canvas { 
-            max-width: 100%; 
-            max-height: 100%; 
-            object-fit: contain; /* This ensures the video resizes without cropping */
-        }
-    `;
-    pipWin.document.head.appendChild(style);
-    pipWin.document.body.appendChild(container);
-
-    pipWin.addEventListener("pagehide", () => {
-        document.body.appendChild(container);
-        container.style.width = "auto";
-        container.style.height = "auto";
-    });
-}
+    async function openPip() {
+        if (!window.documentPictureInPicture) return alert("PiP not supported");
+        const pipWin = await window.documentPictureInPicture.requestWindow({ width: canvas.width, height: canvas.height });
+        const container = document.getElementById('canvasContainer');
+        const style = pipWin.document.createElement('style');
+        style.textContent = `
+            body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+            #canvasContainer { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+            canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
+        `;
+        pipWin.document.head.appendChild(style);
+        pipWin.document.body.appendChild(container);
+        pipWin.addEventListener("pagehide", () => {
+            document.body.appendChild(container);
+            container.style.width = "auto";
+            container.style.height = "auto";
+        });
+    }
 </script>
 </body>
 </html>
