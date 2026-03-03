@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stream Monitor - Precision Control</title>
+    <title>Stream Monitor - Precision Snap</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         body { font-family: -apple-system, sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
@@ -21,7 +21,6 @@
         .btn-capture { background: #fff; color: #000; }
         .btn-pip { background: #0071e3; color: white; }
         
-        /* Dashboard Row for TV/AUD */
         .mode-row { display: flex; gap: 10px; margin-top: 10px; }
         .btn-mode { flex: 1; padding: 10px; background: #444; color: white; border-radius: 8px; font-size: 12px; display: flex; align-items: center; justify-content: center; gap: 5px; }
         
@@ -38,9 +37,7 @@
         #muteBell { bottom: 6px; left: 6px; }
         #muteTab { bottom: 6px; right: 6px; }
         
-        #btnInvert { left: 35px; }
-        #btnGray { left: 75px; }
-        #btnTvAudio { right: 35px; }
+        #btnInvert { left: 35px; } #btnGray { left: 75px; } #btnTvAudio { right: 35px; }
 
         .is-active { background: #0071e3 !important; color: white !important; }
         .is-active-glow { color: #00ff41 !important; box-shadow: 0 0 8px rgba(0,255,65,0.4); }
@@ -64,14 +61,16 @@
         <div class="control-group">Rgt % <input type="number" id="r_num" value="33"></div>
     </div>
 
-    <div class="stats"><span>Tab Var:</span> <span id="live-variance" class="val-display">0</span></div>
+    <div class="stats"><span>Tab Var Limit:</span> <span id="thresh-val" class="val-display">150</span></div>
+    <div class="stats"><span>Live Var:</span> <span id="live-variance" class="val-display">0</span></div>
     <div class="control-group">
         <input type="range" id="variance-slider" min="0" max="2000" value="150" style="width:100%" oninput="updateThreshold(this.value)">
         <div class="vol-header"><span class="vol-label">Chirp Vol</span><button class="btn-test" onclick="playTabChirp(true)">Test</button></div>
         <input type="range" id="volChirp" min="0" max="1" step="0.05" value="0.1" style="width:100%">
     </div>
 
-    <div class="stats"><span>Crop Jump:</span> <span id="crop-delta-display" class="val-display">0</span></div>
+    <div class="stats"><span>Jump Limit:</span> <span id="delta-val" class="val-display">300</span></div>
+    <div class="stats"><span>Live Jump:</span> <span id="crop-delta-display" class="val-display">0</span></div>
     <div class="control-group">
         <input type="range" id="audio-delta-slider" min="10" max="2000" value="300" style="width:100%" oninput="updateAudioDelta(this.value)">
         <div class="vol-header"><span class="vol-label">Bell Vol</span><button class="btn-test" onclick="playDigitalBell(true)">Test</button></div>
@@ -114,9 +113,6 @@
     let isTriggered = false, bellMuted = false, tabMuted = false, radioOn = false, fullFrame = false;
     let invertOn = false, grayOn = false, tvAudioOn = false, pipWindow = null;
     let audioCtx = null, lastCropVariance = 0, audioCooldown = false;
-    
-    // Memory for window position
-    let lastPipPos = { x: 100, y: 100 };
 
     if (Hls.isSupported()) {
         const hlsV = new Hls(); hlsV.loadSource(hlsSrc); hlsV.attachMedia(hlsVideo); hlsV.on(Hls.Events.MANIFEST_PARSED, () => hlsVideo.play());
@@ -128,12 +124,10 @@
 
     function setupButtonEvents(doc) {
         const setClick = (id, fn) => { const el = doc.getElementById(id); if(el) el.onclick = fn; };
-
-        setClick('muteBell', (e) => { e.stopPropagation(); bellMuted = !bellMuted; updateUI('muteBell', bellMuted, '制', '🔊', 'is-muted'); });
+        setClick('muteBell', (e) => { e.stopPropagation(); bellMuted = !bellMuted; updateUI('muteBell', bellMuted, '🔇', '🔊', 'is-muted'); });
         setClick('muteTab', (e) => { e.stopPropagation(); tabMuted = !tabMuted; updateUI('muteTab', tabMuted, '🔕', '🔔', 'is-muted'); });
         setClick('radioToggle', (e) => { e.stopPropagation(); radioOn = !radioOn; radioOn ? radioAudio.play() : radioAudio.pause(); updateUI('radioToggle', radioOn, '📻', '📻', 'is-active-glow'); });
         
-        // Combined Toggle Logic
         const toggleTV = (e) => { e.stopPropagation(); fullFrame = !fullFrame; toggleFullFrameUI(); };
         const toggleAUD = (e) => { e.stopPropagation(); tvAudioOn = !tvAudioOn; tvAudioOn ? tvAudio.play() : tvAudio.pause(); updateUI('btnTvAudio', tvAudioOn, 'AUD', 'AUD', 'is-active-glow'); updateUI('dashAud', tvAudioOn, '🔊 AUD Stream', '🔊 AUD Stream', 'is-active'); };
 
@@ -149,47 +143,45 @@
     function toggleFullFrameUI() {
         updateUI('fullFrameToggle', fullFrame, '📺', '📺', 'is-active-glow');
         updateUI('dashTv', fullFrame, '📺 TV Mode', '📺 TV Mode', 'is-active');
-        
         const display = fullFrame ? 'block' : 'none';
         
         [document, (pipWindow ? pipWindow.document : null)].forEach(d => {
             if (!d) return;
             ['btnInvert', 'btnGray', 'btnTvAudio'].forEach(id => {
-                const el = d.getElementById(id);
-                if(el) el.style.setProperty('display', display, 'important');
+                const el = d.getElementById(id); if(el) el.style.setProperty('display', display, 'important');
             });
         });
 
         if (pipWindow) {
             if (fullFrame) {
-                // Save position before enlarging
-                lastPipPos.x = pipWindow.screenX;
-                lastPipPos.y = pipWindow.screenY;
                 pipWindow.resizeTo(hlsVideo.videoWidth || 1280, (hlsVideo.videoHeight || 720) + 60);
             } else {
-                // Restore to original size and original location
-                const vW = hlsVideo.videoWidth || 1280;
-                const vH = hlsVideo.videoHeight || 720;
-                const t = document.getElementById('t_num').value/100, b = document.getElementById('b_num').value/100;
-                const l = document.getElementById('l_num').value/100, r = document.getElementById('r_num').value/100;
-                const sw = Math.max(vW * (1 - l - r), 1);
-                const sh = Math.max(vH * (1 - t - b), 1);
-                
-                pipWindow.resizeTo(Math.max(sw, 250), Math.max(sh + 60, 150));
-                pipWindow.moveTo(lastPipPos.x, lastPipPos.y);
+                // FORCE DIMENSIONS: 627 x 82 (includes chrome buffer)
+                pipWindow.resizeTo(627, 82 + 50); 
+                // SNAP TO BOTTOM RIGHT
+                const screenW = window.screen.availWidth;
+                const screenH = window.screen.availHeight;
+                pipWindow.moveTo(screenW - 635, screenH - 140);
             }
         }
     }
 
     function updateUI(id, state, activeTxt, inactiveTxt, className) {
         const up = (d) => {
-            const el = d.getElementById(id);
-            if (!el) return;
+            const el = d.getElementById(id); if (!el) return;
             el.innerText = state ? activeTxt : inactiveTxt;
             state ? el.classList.add(className) : el.classList.remove(className);
         };
-        up(document);
-        if (pipWindow) up(pipWindow.document);
+        up(document); if (pipWindow) up(pipWindow.document);
+    }
+
+    function updateThreshold(v) { 
+        currentThreshold = parseInt(v); 
+        document.getElementById('thresh-val').innerText = v; 
+    }
+    function updateAudioDelta(v) { 
+        audioDeltaThreshold = parseInt(v); 
+        document.getElementById('delta-val').innerText = v; 
     }
 
     function drawMain() {
@@ -198,31 +190,26 @@
             let sx, sy, sw, sh;
             if (fullFrame) { sx = 0; sy = 0; sw = vW; sh = vH; } 
             else {
-                const t = document.getElementById('t_num').value / 100, b = document.getElementById('b_num').value / 100;
-                const l = document.getElementById('l_num').value / 100, r = document.getElementById('r_num').value / 100;
-                sx = vW * l; sy = vH * t; sw = Math.max(vW * (1 - l - r), 1); sh = Math.max(vH * (1 - t - b), 1);
+                const t = document.getElementById('t_num').value/100, b = document.getElementById('b_num').value/100;
+                const l = document.getElementById('l_num').value/100, r = document.getElementById('r_num').value/100;
+                sx = vW * l; sy = vH * t; sw = Math.max(vW * (1-l-r), 1); sh = Math.max(vH * (1-t-b), 1);
             }
             canvas.width = sw; canvas.height = sh;
-            let filters = [];
-            if (!isTriggered && !fullFrame) filters.push('grayscale(100%) brightness(0.7)');
-            if (fullFrame) {
-                if (invertOn) filters.push('invert(1)');
-                if (grayOn) filters.push('grayscale(1)');
-            }
-            ctx.filter = filters.length ? filters.join(' ') : 'none';
+            let f = [];
+            if (!isTriggered && !fullFrame) f.push('grayscale(100%) brightness(0.7)');
+            if (fullFrame) { if (invertOn) f.push('invert(1)'); if (grayOn) f.push('grayscale(1)'); }
+            ctx.filter = f.length ? f.join(' ') : 'none';
             ctx.drawImage(hlsVideo, sx, sy, sw, sh, 0, 0, sw, sh);
 
             if (!fullFrame) {
-                const cropData = ctx.getImageData(0, 0, sw, sh).data;
-                let cTotal = 0, cVarSum = 0;
-                for (let i = 0; i < cropData.length; i += 4) cTotal += (cropData[i] + cropData[i+1] + cropData[i+2]) / 3;
-                const cAvg = cTotal / (cropData.length/4);
-                for (let i = 0; i < cropData.length; i += 4) cVarSum += Math.pow(((cropData[i] + cropData[i+1] + cropData[i+2]) / 3) - cAvg, 2);
-                const currentCropVar = Math.round(cVarSum / (cropData.length/4));
-                const delta = Math.abs(currentCropVar - lastCropVariance);
+                const d = ctx.getImageData(0,0,sw,sh).data;
+                let t=0, vs=0; for(let i=0; i<d.length; i+=4) t+=(d[i]+d[i+1]+d[i+2])/3;
+                const avg=t/(d.length/4); for(let i=0; i<d.length; i+=4) vs+=Math.pow(((d[i]+d[i+1]+d[i+2])/3)-avg, 2);
+                const v = Math.round(vs/(d.length/4));
+                const delta = Math.abs(v - lastCropVariance);
                 document.getElementById('crop-delta-display').innerText = delta;
                 if (delta > audioDeltaThreshold) playDigitalBell();
-                lastCropVariance = currentCropVar;
+                lastCropVariance = v;
             }
         }
         requestAnimationFrame(drawMain);
@@ -232,13 +219,11 @@
     function playDigitalBell(isTest=false) { if(!isTest && (bellMuted || audioCooldown)) return; const vol = parseFloat(document.getElementById('volBell').value); if(vol <= 0) return; if(!audioCtx) audioCtx = new AudioContext(); const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain(); osc.frequency.setValueAtTime(523, audioCtx.currentTime); gain.gain.setValueAtTime(vol, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 1.0); osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 1.0); if(!isTest) { audioCooldown = true; setTimeout(() => audioCooldown = false, 2000); } }
     function playTabChirp(isTest=false) { if(!isTest && tabMuted) return; const vol = parseFloat(document.getElementById('volChirp').value); if(vol <= 0) return; if(!audioCtx) audioCtx = new AudioContext(); const now = audioCtx.currentTime; const blip = (f,s,d) => { const o = audioCtx.createOscillator(); const g = audioCtx.createGain(); o.frequency.setValueAtTime(f, now+s); g.gain.setValueAtTime(vol, now+s); g.gain.exponentialRampToValueAtTime(0.0001, now+s+d); o.connect(g); g.connect(audioCtx.destination); o.start(now+s); o.stop(now+s+d); }; blip(2000,0,0.05); blip(2500,0.1,0.05); blip(3000,0.2,0.2); }
     async function startCapture() { sourceStream = await navigator.mediaDevices.getDisplayMedia({video:true}); startAnalysis(); }
-    function updateThreshold(v) { currentThreshold = parseInt(v); }
-    function updateAudioDelta(v) { audioDeltaThreshold = parseInt(v); }
     function startAnalysis() { const vA = document.createElement("video"); vA.srcObject = sourceStream; vA.play(); const aC = document.createElement("canvas"); const aX = aC.getContext("2d"); aC.width=50; aC.height=50; setInterval(() => { if(vA.readyState >= 2) { aX.drawImage(vA,0,0,50,50); const d = aX.getImageData(0,0,50,50).data; let t=0, vS=0; for(let i=0; i<d.length; i+=4) t+=(d[i]+d[i+1]+d[i+2])/3; const avg=t/(d.length/4); for(let i=0; i<d.length; i+=4) vS+=Math.pow(((d[i]+d[i+1]+d[i+2]) / 3)-avg, 2); const v = Math.round(vS/(d.length/4)); document.getElementById('live-variance').innerText = v; const trig = v > currentThreshold; if(trig !== isTriggered) { if(trig) playTabChirp(); isTriggered = trig; document.getElementById('canvasContainer').classList.toggle('active-border', isTriggered); } } }, 200); }
 
     async function openPip() {
         if (!window.documentPictureInPicture) return alert("PiP not supported");
-        pipWindow = await window.documentPictureInPicture.requestWindow({ width: canvas.width, height: canvas.height + 60 });
+        pipWindow = await window.documentPictureInPicture.requestWindow({ width: 627, height: 132 });
         const container = document.getElementById('canvasContainer');
         const style = pipWindow.document.createElement('style');
         style.textContent = `
@@ -248,18 +233,15 @@
             .active-border canvas { border: 4px solid #ff0000 !important; }
             .icon-btn { position: absolute; width: 24px; height: 24px; background: rgba(0,0,0,0.6); color: white; font-size: 13px; display: flex; align-items: center; justify-content: center; border: none; border-radius: 4px; cursor: pointer; }
             .txt-btn { position: absolute; top: 6px; height: 20px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 0 6px; border-radius: 4px; cursor: pointer; border: none; z-index: 101; font-weight: bold; }
-            #radioToggle { top: 6px; left: 6px; }
-            #fullFrameToggle { top: 6px; right: 6px; }
-            #muteBell { bottom: 6px; left: 6px; }
-            #muteTab { bottom: 6px; right: 6px; }
+            #radioToggle { top: 6px; left: 6px; } #fullFrameToggle { top: 6px; right: 6px; }
+            #muteBell { bottom: 6px; left: 6px; } #muteTab { bottom: 6px; right: 6px; }
             #btnInvert { left: 35px; } #btnGray { left: 75px; } #btnTvAudio { right: 35px; }
             .is-muted { color: #ff4444 !important; }
             .is-active-glow { color: #00ff41 !important; box-shadow: 0 0 8px rgba(0,255,65,0.4); }
         `;
         pipWindow.document.head.appendChild(style);
         pipWindow.document.body.appendChild(container);
-        
-        toggleFullFrameUI(); // Sync visibility immediately
+        toggleFullFrameUI();
         setupButtonEvents(pipWindow.document);
         pipWindow.addEventListener("pagehide", () => { document.body.appendChild(container); setupButtonEvents(document); pipWindow = null; });
     }
