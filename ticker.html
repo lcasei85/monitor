@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stream Monitor - No Stretch</title>
+    <title>Stream Monitor - Natural Ratio</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         body { font-family: -apple-system, sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
@@ -23,9 +23,9 @@
         .mode-row { display: flex; gap: 10px; margin-top: 10px; }
         .btn-mode { flex: 1; padding: 10px; background: #444; color: white; border-radius: 8px; font-size: 12px; display: flex; align-items: center; justify-content: center; gap: 5px; }
         
-        #canvasContainer { margin-top: 20px; border: 2px solid #333; position: relative; line-height: 0; overflow: hidden; border-radius: 4px; background: #000; width: 613px; }
+        #canvasContainer { margin-top: 20px; border: 2px solid #333; position: relative; line-height: 0; overflow: hidden; border-radius: 4px; background: #000; width: 613px; min-height: 50px; display: flex; align-items: center; justify-content: center; }
         .active-border { border-color: #ff0000 !important; border-width: 4px !important; }
-        canvas { width: 613px; display: block; margin: 0 auto; image-rendering: -webkit-optimize-contrast; }
+        canvas { display: block; image-rendering: -webkit-optimize-contrast; max-width: 100%; height: auto; }
         video { display: none; }
 
         .icon-btn { position: absolute; width: 24px; height: 24px; border-radius: 4px; background: rgba(0,0,0,0.6); color: white; font-size: 13px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; z-index: 100; }
@@ -122,7 +122,7 @@
 
     function setupButtonEvents(doc) {
         const setClick = (id, fn) => { const el = doc.getElementById(id); if(el) el.onclick = fn; };
-        setClick('muteBell', (e) => { e.stopPropagation(); bellMuted = !bellMuted; updateUI('muteBell', bellMuted, '制', '🔊', 'is-muted'); });
+        setClick('muteBell', (e) => { e.stopPropagation(); bellMuted = !bellMuted; updateUI('muteBell', bellMuted, '🔇', '🔊', 'is-muted'); });
         setClick('muteTab', (e) => { e.stopPropagation(); tabMuted = !tabMuted; updateUI('muteTab', tabMuted, '🔕', '🔔', 'is-muted'); });
         setClick('radioToggle', (e) => { e.stopPropagation(); radioOn = !radioOn; radioOn ? radioAudio.play() : radioAudio.pause(); updateUI('radioToggle', radioOn, '📻', '📻', 'is-active-glow'); });
         
@@ -154,12 +154,12 @@
 
         if (pipWindow) {
             if (fullFrame) {
-                pipWindow.resizeTo(613, 345 + 50);
+                pipWindow.resizeTo(613, 345 + 60);
             } else {
-                pipWindow.resizeTo(613, 82 + 50); 
+                pipWindow.resizeTo(613, 88 + 60); 
                 const screenW = window.screen.availWidth;
                 const screenH = window.screen.availHeight;
-                pipWindow.moveTo(screenW - 625, screenH - 140);
+                pipWindow.moveTo(screenW - 625, screenH - 150);
             }
         }
     }
@@ -183,24 +183,22 @@
             
             if (fullFrame) { 
                 sx = 0; sy = 0; sw = vW; sh = vH; 
-                canvas.height = 345;
             } else {
                 const t = document.getElementById('t_num').value/100, b = document.getElementById('b_num').value/100;
                 const l = document.getElementById('l_num').value/100, r = document.getElementById('r_num').value/100;
                 sx = vW * l; sy = vH * t; sw = Math.max(vW * (1-l-r), 1); sh = Math.max(vH * (1-t-b), 1);
-                canvas.height = 82;
             }
             
+            // SET CANVAS TO NATURAL RATIO AT 613 WIDTH
+            const ratio = sh / sw;
             canvas.width = 613;
+            canvas.height = 613 * ratio;
 
             let f = [];
             if (!isTriggered && !fullFrame) f.push('grayscale(100%) brightness(0.7)');
             if (fullFrame) { if (invertOn) f.push('invert(1)'); if (grayOn) f.push('grayscale(1)'); }
             
             ctx.filter = f.length ? f.join(' ') : 'none';
-            
-            // Scaled Drawing to prevent stretching
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(hlsVideo, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
 
             if (!fullFrame) {
@@ -226,13 +224,13 @@
 
     async function openPip() {
         if (!window.documentPictureInPicture) return alert("PiP not supported");
-        pipWindow = await window.documentPictureInPicture.requestWindow({ width: 613, height: 132 });
+        pipWindow = await window.documentPictureInPicture.requestWindow({ width: 613, height: 148 });
         const container = document.getElementById('canvasContainer');
         const style = pipWindow.document.createElement('style');
         style.textContent = `
             body, html { margin: 0; padding: 0; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
             #canvasContainer { width: 613px; height: 100%; display: flex; align-items: center; justify-content: center; position: relative; }
-            canvas { width: 613px; max-height: 100%; }
+            canvas { width: 613px; max-height: 100%; object-fit: contain; }
             .active-border canvas { border: 4px solid #ff0000 !important; }
             .icon-btn { position: absolute; width: 24px; height: 24px; background: rgba(0,0,0,0.6); color: white; font-size: 13px; display: flex; align-items: center; justify-content: center; border: none; border-radius: 4px; cursor: pointer; }
             .txt-btn { position: absolute; top: 6px; height: 20px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 0 6px; border-radius: 4px; cursor: pointer; border: none; z-index: 101; font-weight: bold; }
