@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stream Monitor - Pro</title>
+    <title>Stream Monitor - Adaptive UI</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         body { font-family: -apple-system, sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
@@ -26,16 +26,16 @@
         canvas { max-width: 100%; height: auto; display: block; }
         video { display: none; }
 
-        /* Floating Controls */
+        /* Floating Icons */
         .icon-btn { position: absolute; width: 24px; height: 24px; border-radius: 4px; background: rgba(0,0,0,0.6); color: white; font-size: 13px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; z-index: 100; }
-        .txt-btn { position: absolute; top: 6px; height: 20px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 0 6px; border-radius: 4px; cursor: pointer; border: none; z-index: 101; display: none; }
+        /* Filter Buttons - Hidden by default */
+        .txt-btn { position: absolute; top: 6px; height: 20px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 0 6px; border-radius: 4px; cursor: pointer; border: none; z-index: 101; display: none; font-weight: bold; }
         
         #radioToggle { top: 6px; left: 6px; }
         #fullFrameToggle { top: 6px; right: 6px; }
         #muteBell { bottom: 6px; left: 6px; }
         #muteTab { bottom: 6px; right: 6px; }
         
-        /* Dynamic filter buttons */
         #btnInvert { left: 40px; }
         #btnGray { right: 40px; }
 
@@ -116,13 +116,22 @@
     }
 
     function toggleFullFrameUI() {
+        // Toggle TV button visual state
         updateUI('fullFrameToggle', fullFrame, '📺', '📺', 'is-active');
+        
+        // Show/Hide the filter buttons based on fullFrame state
         const display = fullFrame ? 'block' : 'none';
-        document.getElementById('btnInvert').style.display = display;
-        document.getElementById('btnGray').style.display = display;
+        
+        const mainInv = document.getElementById('btnInvert');
+        const mainGray = document.getElementById('btnGray');
+        if(mainInv) mainInv.style.display = display;
+        if(mainGray) mainGray.style.display = display;
+
         if (pipWindow) {
-            pipWindow.document.getElementById('btnInvert').style.display = display;
-            pipWindow.document.getElementById('btnGray').style.display = display;
+            const pipInv = pipWindow.document.getElementById('btnInvert');
+            const pipGray = pipWindow.document.getElementById('btnGray');
+            if(pipInv) pipInv.style.display = display;
+            if(pipGray) pipGray.style.display = display;
         }
     }
 
@@ -152,7 +161,6 @@
 
             canvas.width = sw; canvas.height = sh;
             
-            // Apply Filters
             let filters = [];
             if (!isTriggered && !fullFrame) filters.push('grayscale(100%) brightness(0.7)');
             if (fullFrame) {
@@ -160,10 +168,8 @@
                 if (grayOn) filters.push('grayscale(1)');
             }
             ctx.filter = filters.length ? filters.join(' ') : 'none';
-            
             ctx.drawImage(hlsVideo, sx, sy, sw, sh, 0, 0, sw, sh);
 
-            // Analysis Logic (always runs on the current view)
             const cropData = ctx.getImageData(0, 0, sw, sh).data;
             let cTotal = 0, cVarSum = 0;
             for (let i = 0; i < cropData.length; i += 4) cTotal += (cropData[i] + cropData[i+1] + cropData[i+2]) / 3;
@@ -179,15 +185,16 @@
     }
     hlsVideo.addEventListener('play', drawMain);
 
-    // Reuse previous logic for audio/capture...
-    function playDigitalBell(isTest=false) { if(!isTest && (bellMuted || audioCooldown)) return; const vol = parseFloat(document.getElementById('volBell').value); if(vol <= 0) return; if(!audioCtx) audioCtx = new AudioContext(); const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain(); osc.frequency.setValueAtTime(523, audioCtx.currentTime); gain.gain.setValueAtTime(vol, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 1.0); osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 1.0); if(!isTest) { audioCooldown = true; setTimeout(() => audioCooldown = false, 2000); } }
-    function playTabChirp(isTest=false) { if(!isTest && tabMuted) return; const vol = parseFloat(document.getElementById('volChirp').value); if(vol <= 0) return; if(!audioCtx) audioCtx = new AudioContext(); const now = audioCtx.currentTime; const blip = (f,s,d) => { const o = audioCtx.createOscillator(); const g = audioCtx.createGain(); o.frequency.setValueAtTime(f, now+s); g.gain.setValueAtTime(vol, now+s); g.gain.exponentialRampToValueAtTime(0.0001, now+s+d); o.connect(g); g.connect(audioCtx.destination); o.start(now+s); o.stop(now+s+d); }; blip(2000,0,0.05); blip(2500,0.1,0.05); blip(3000,0.2,0.2); }
+    // Audio / Analysis Logic
+    function playDigitalBell(isTest=false) { if(!isTest && (bellMuted || audioCooldown)) return; const vol = parseFloat(document.getElementById('volBell').value); if(vol <= 0) return; if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain(); osc.frequency.setValueAtTime(523, audioCtx.currentTime); gain.gain.setValueAtTime(vol, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 1.0); osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 1.0); if(!isTest) { audioCooldown = true; setTimeout(() => audioCooldown = false, 2000); } }
+    function playTabChirp(isTest=false) { if(!isTest && tabMuted) return; const vol = parseFloat(document.getElementById('volChirp').value); if(vol <= 0) return; if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); const now = audioCtx.currentTime; const blip = (f,s,d) => { const o = audioCtx.createOscillator(); const g = audioCtx.createGain(); o.frequency.setValueAtTime(f, now+s); g.gain.setValueAtTime(vol, now+s); g.gain.exponentialRampToValueAtTime(0.0001, now+s+d); o.connect(g); g.connect(audioCtx.destination); o.start(now+s); o.stop(now+s+d); }; blip(2000,0,0.05); blip(2500,0.1,0.05); blip(3000,0.2,0.2); }
     async function startCapture() { sourceStream = await navigator.mediaDevices.getDisplayMedia({video:true}); startAnalysis(); }
     function updateThreshold(v) { currentThreshold = parseInt(v); }
     function updateAudioDelta(v) { audioDeltaThreshold = parseInt(v); }
-    function startAnalysis() { const vA = document.createElement("video"); vA.srcObject = sourceStream; vA.play(); const aC = document.createElement("canvas"); const aX = aC.getContext("2d"); aC.width=50; aC.height=50; setInterval(() => { if(vA.readyState >= 2) { aX.drawImage(vA,0,0,50,50); const d = aX.getImageData(0,0,50,50).data; let t=0, vS=0; for(let i=0; i<d.length; i+=4) t+=(d[i]+d[i+1]+d[i+2])/3; const avg=t/(d.length/4); for(let i=0; i<d.length; i+=4) vS+=Math.pow(((d[i]+d[i+1]+d[i+2])/3)-avg, 2); const v = Math.round(vS/(d.length/4)); document.getElementById('live-variance').innerText = v; const trig = v > currentThreshold; if(trig !== isTriggered) { if(trig) playTabChirp(); isTriggered = trig; document.getElementById('canvasContainer').classList.toggle('active-border', isTriggered); } } }, 200); }
+    function startAnalysis() { const vA = document.createElement("video"); vA.srcObject = sourceStream; vA.play(); const aC = document.createElement("canvas"); const aX = aC.getContext("2d"); aC.width=50; aC.height=50; setInterval(() => { if(vA.readyState >= 2) { aX.drawImage(vA,0,0,50,50); const d = aX.getImageData(0,0,50,50).data; let t=0, vS=0; for(let i=0; i<d.length; i+=4) t+=(d[i]+d[i+1]+d[i+2])/3; const avg=t/(d.length/4); for(let i=0; i<d.length; i+=4) vS+=Math.pow(((d[i]+d[i+1]+d[i+2]) / 3)-avg, 2); const v = Math.round(vS/(d.length/4)); document.getElementById('live-variance').innerText = v; const trig = v > currentThreshold; if(trig !== isTriggered) { if(trig) playTabChirp(); isTriggered = trig; document.getElementById('canvasContainer').classList.toggle('active-border', isTriggered); } } }, 200); }
 
     async function openPip() {
+        if (!window.documentPictureInPicture) return alert("PiP not supported");
         pipWindow = await window.documentPictureInPicture.requestWindow({ width: canvas.width, height: canvas.height });
         const container = document.getElementById('canvasContainer');
         const style = pipWindow.document.createElement('style');
@@ -209,6 +216,12 @@
         `;
         pipWindow.document.head.appendChild(style);
         pipWindow.document.body.appendChild(container);
+        
+        // Sync filter buttons visibility upon opening PiP
+        const currentDisplay = fullFrame ? 'block' : 'none';
+        pipWindow.document.getElementById('btnInvert').style.display = currentDisplay;
+        pipWindow.document.getElementById('btnGray').style.display = currentDisplay;
+
         setupButtonEvents(pipWindow.document);
         pipWindow.addEventListener("pagehide", () => { document.body.appendChild(container); setupButtonEvents(document); pipWindow = null; });
     }
