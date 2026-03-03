@@ -2,47 +2,51 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Advanced Stream Monitor with Radio</title>
+    <title>Stream Monitor - Pro</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         body { font-family: -apple-system, sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
         .card { background: #252525; padding: 20px; border-radius: 16px; width: 350px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
         .controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 11px; margin-top: 15px; }
-        .control-group { text-align: left; margin-bottom: 10px; }
+        .control-group { text-align: left; margin-bottom: 12px; }
         input[type="number"] { width: 35px; background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; padding: 2px; }
         .stats { display: flex; justify-content: space-between; font-family: monospace; background: #000; padding: 6px 10px; border-radius: 6px; margin: 8px 0; font-size: 12px; }
         .val-display { color: #00ff41; font-weight: bold; }
-        button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; transition: 0.2s; }
+        
+        .vol-header { display: flex; justify-content: space-between; align-items: center; margin-top: 5px; }
+        .vol-label { font-size: 10px; opacity: 0.7; }
+        .btn-test { background: #444; color: #fff; font-size: 9px; padding: 2px 6px; border-radius: 4px; border: none; cursor: pointer; }
+
+        button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; }
         .btn-capture { background: #fff; color: #000; }
         .btn-pip { background: #0071e3; color: white; }
         
-        #canvasContainer { margin-top: 20px; border: 2px solid #333; transition: border-color 0.2s; position: relative; line-height: 0; overflow: hidden; border-radius: 4px; }
-        .active-border { border-color: #ff0000 !important; }
+        #canvasContainer { margin-top: 20px; border: 2px solid #333; position: relative; line-height: 0; overflow: hidden; border-radius: 4px; }
+        .active-border { border-color: #ff0000 !important; border-width: 4px !important; }
         canvas { max-width: 100%; height: auto; display: block; }
         video { display: none; }
-        .vol-label { font-size: 10px; opacity: 0.7; display: block; margin-top: 5px; }
 
-        /* Icon Buttons */
-        .icon-btn { 
-            position: absolute; width: 22px; height: 22px; border-radius: 4px; 
-            background: rgba(0,0,0,0.6); color: white; font-size: 12px; 
-            display: flex; align-items: center; justify-content: center;
-            cursor: pointer; border: none; z-index: 100; transition: 0.2s;
-        }
-        .icon-btn:hover { background: rgba(0,0,0,0.9); transform: scale(1.1); }
-        #muteBell { bottom: 4px; left: 4px; }
-        #muteTab { bottom: 4px; right: 4px; }
-        #radioToggle { top: 4px; left: 4px; }
+        /* Floating Controls */
+        .icon-btn { position: absolute; width: 24px; height: 24px; border-radius: 4px; background: rgba(0,0,0,0.6); color: white; font-size: 13px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; z-index: 100; }
+        .txt-btn { position: absolute; top: 6px; height: 20px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 0 6px; border-radius: 4px; cursor: pointer; border: none; z-index: 101; display: none; }
         
-        .is-active { color: #00ff41 !important; border: 1px solid rgba(0,255,65,0.3); }
-        .is-muted { color: #ff4444 !important; opacity: 1 !important; }
+        #radioToggle { top: 6px; left: 6px; }
+        #fullFrameToggle { top: 6px; right: 6px; }
+        #muteBell { bottom: 6px; left: 6px; }
+        #muteTab { bottom: 6px; right: 6px; }
+        
+        /* Dynamic filter buttons */
+        #btnInvert { left: 40px; }
+        #btnGray { right: 40px; }
+
+        .is-active { color: #00ff41 !important; box-shadow: 0 0 8px rgba(0,255,65,0.4); }
+        .is-muted { color: #ff4444 !important; }
     </style>
 </head>
 <body>
 
 <div class="card">
     <h3>Stream Monitor</h3>
-    
     <div class="controls-grid">
         <div class="control-group">Top % <input type="number" id="t_num" value="79"></div>
         <div class="control-group">Bot % <input type="number" id="b_num" value="10"></div>
@@ -50,26 +54,17 @@
         <div class="control-group">Rgt % <input type="number" id="r_num" value="33"></div>
     </div>
 
-    <div class="stats">
-        <span>Tab Var:</span> <span id="live-variance" class="val-display">0</span>
-    </div>
-
+    <div class="stats"><span>Tab Var:</span> <span id="live-variance" class="val-display">0</span></div>
     <div class="control-group">
-        <label>Tab Sensitivity: <b id="threshold-val">150</b></label>
         <input type="range" id="variance-slider" min="0" max="2000" value="150" style="width:100%" oninput="updateThreshold(this.value)">
-        <span class="vol-label">Chirp Volume</span>
+        <div class="vol-header"><span class="vol-label">Chirp Vol</span><button class="btn-test" onclick="playTabChirp(true)">Test</button></div>
         <input type="range" id="volChirp" min="0" max="1" step="0.05" value="0.1" style="width:100%">
     </div>
 
-    <hr style="opacity:0.1">
-
-    <div class="stats">
-        <span>Crop Jump:</span> <span id="crop-delta-display" class="val-display">0</span>
-    </div>
+    <div class="stats"><span>Crop Jump:</span> <span id="crop-delta-display" class="val-display">0</span></div>
     <div class="control-group">
-        <label>Jump Sensitivity: <b id="audio-delta-val">300</b></label>
         <input type="range" id="audio-delta-slider" min="10" max="2000" value="300" style="width:100%" oninput="updateAudioDelta(this.value)">
-        <span class="vol-label">Bell Volume</span>
+        <div class="vol-header"><span class="vol-label">Bell Vol</span><button class="btn-test" onclick="playDigitalBell(true)">Test</button></div>
         <input type="range" id="volBell" min="0" max="1" step="0.05" value="0.15" style="width:100%">
     </div>
 
@@ -78,7 +73,10 @@
 </div>
 
 <div id="canvasContainer">
-    <div id="radioToggle" class="icon-btn" title="Toggle Radio Stream">📻</div>
+    <div id="radioToggle" class="icon-btn">📻</div>
+    <div id="fullFrameToggle" class="icon-btn">📺</div>
+    <button id="btnInvert" class="txt-btn">INVERT</button>
+    <button id="btnGray" class="txt-btn">GRAY</button>
     <div id="muteBell" class="icon-btn">🔊</div>
     <div id="muteTab" class="icon-btn">🔔</div>
     <canvas id="cropCanvas"></canvas>
@@ -97,187 +95,122 @@
     const radioSrc = 'https://n-121-4.il.cdn-redge.media/livehls/oil/kancdn-live/live/radio/kan_reshet_bet/live.livx/playlist.m3u8?bitrate=192000&audioId=1&lang=pol&renditions';
     
     let sourceStream, currentThreshold = 150, audioDeltaThreshold = 300;
-    let isTriggered = false, bellMuted = false, tabMuted = false, radioOn = false, pipWindow = null;
-    let audioCtx = null, lastCropVariance = 0, audioCooldown = false, colorChangeLock = false;
+    let isTriggered = false, bellMuted = false, tabMuted = false, radioOn = false, fullFrame = false;
+    let invertOn = false, grayOn = false, pipWindow = null;
+    let audioCtx = null, lastCropVariance = 0, audioCooldown = false;
 
-    // Setup HLS for Video
     if (Hls.isSupported()) {
-        const hlsV = new Hls(); hlsV.loadSource(hlsSrc); hlsV.attachMedia(hlsVideo);
-        hlsV.on(Hls.Events.MANIFEST_PARSED, () => hlsVideo.play());
-
+        const hlsV = new Hls(); hlsV.loadSource(hlsSrc); hlsV.attachMedia(hlsVideo); hlsV.on(Hls.Events.MANIFEST_PARSED, () => hlsVideo.play());
         const hlsA = new Hls(); hlsA.loadSource(radioSrc); hlsA.attachMedia(radioAudio);
     }
 
     setupButtonEvents(document);
 
-    function setupButtonEvents(docContext) {
-        docContext.getElementById('muteBell').onclick = (e) => { e.stopPropagation(); toggleMute('bell'); };
-        docContext.getElementById('muteTab').onclick = (e) => { e.stopPropagation(); toggleMute('tab'); };
-        docContext.getElementById('radioToggle').onclick = (e) => { e.stopPropagation(); toggleRadio(); };
+    function setupButtonEvents(doc) {
+        doc.getElementById('muteBell').onclick = (e) => { e.stopPropagation(); bellMuted = !bellMuted; updateUI('muteBell', bellMuted, '🔇', '🔊', 'is-muted'); };
+        doc.getElementById('muteTab').onclick = (e) => { e.stopPropagation(); tabMuted = !tabMuted; updateUI('muteTab', tabMuted, '🔕', '🔔', 'is-muted'); };
+        doc.getElementById('radioToggle').onclick = (e) => { e.stopPropagation(); radioOn = !radioOn; radioOn ? radioAudio.play() : radioAudio.pause(); updateUI('radioToggle', radioOn, '📻', '📻', 'is-active'); };
+        doc.getElementById('fullFrameToggle').onclick = (e) => { e.stopPropagation(); fullFrame = !fullFrame; toggleFullFrameUI(); };
+        doc.getElementById('btnInvert').onclick = (e) => { e.stopPropagation(); invertOn = !invertOn; updateUI('btnInvert', invertOn, 'INVERT', 'INVERT', 'is-active'); };
+        doc.getElementById('btnGray').onclick = (e) => { e.stopPropagation(); grayOn = !grayOn; updateUI('btnGray', grayOn, 'GRAY', 'GRAY', 'is-active'); };
     }
 
-    function toggleRadio() {
-        radioOn = !radioOn;
-        if (radioOn) {
-            radioAudio.play();
-        } else {
-            radioAudio.pause();
-        }
-        updateIconUI('radioToggle', radioOn, '📻', '📻', 'is-active');
-    }
-
-    function toggleMute(type) {
-        if (type === 'bell') {
-            bellMuted = !bellMuted;
-            updateIconUI('muteBell', bellMuted, '🔇', '🔊', 'is-muted');
-        } else {
-            tabMuted = !tabMuted;
-            updateIconUI('muteTab', tabMuted, '🔕', '🔔', 'is-muted');
+    function toggleFullFrameUI() {
+        updateUI('fullFrameToggle', fullFrame, '📺', '📺', 'is-active');
+        const display = fullFrame ? 'block' : 'none';
+        document.getElementById('btnInvert').style.display = display;
+        document.getElementById('btnGray').style.display = display;
+        if (pipWindow) {
+            pipWindow.document.getElementById('btnInvert').style.display = display;
+            pipWindow.document.getElementById('btnGray').style.display = display;
         }
     }
 
-    function updateIconUI(id, state, activeIcon, inactiveIcon, className) {
-        const update = (doc) => {
-            const el = doc.getElementById(id);
+    function updateUI(id, state, activeIcon, inactiveIcon, className) {
+        const up = (d) => {
+            const el = d.getElementById(id);
             if (!el) return;
             el.innerText = state ? activeIcon : inactiveIcon;
             state ? el.classList.add(className) : el.classList.remove(className);
         };
-        update(document);
-        if (pipWindow) update(pipWindow.document);
-    }
-
-    function playDigitalBell() {
-        if (bellMuted || audioCooldown || colorChangeLock) return;
-        const vol = document.getElementById('volBell').value;
-        if (vol <= 0) return;
-        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(523, audioCtx.currentTime); 
-        gain.gain.setValueAtTime(vol, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 1.0);
-        osc.connect(gain); gain.connect(audioCtx.destination);
-        osc.start(); osc.stop(audioCtx.currentTime + 1.0);
-        audioCooldown = true;
-        setTimeout(() => audioCooldown = false, 2000); 
-    }
-
-    function playTabChirp() {
-        if (tabMuted) return;
-        const vol = document.getElementById('volChirp').value;
-        if (vol <= 0) return;
-        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        colorChangeLock = true;
-        setTimeout(() => colorChangeLock = false, 300);
-        const now = audioCtx.currentTime;
-        const playBlip = (freq, start, dur) => {
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(freq, now + start);
-            gain.gain.setValueAtTime(vol, now + start);
-            gain.gain.exponentialRampToValueAtTime(0.0001, now + start + dur);
-            osc.connect(gain); gain.connect(audioCtx.destination);
-            osc.start(now + start); osc.stop(now + start + dur);
-        };
-        playBlip(2000, 0, 0.05);
-        playBlip(2500, 0.1, 0.05);
-        playBlip(3000, 0.2, 0.2);
-    }
-
-    async function startCapture() {
-        try {
-            sourceStream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: "browser", frameRate: 5 }, audio: false });
-            startAnalysis();
-        } catch (err) { console.error(err); }
-    }
-
-    function updateThreshold(val) { currentThreshold = parseInt(val); document.getElementById('threshold-val').innerText = val; }
-    function updateAudioDelta(val) { audioDeltaThreshold = parseInt(val); document.getElementById('audio-delta-val').innerText = val; }
-
-    function startAnalysis() {
-        const vAnalyze = document.createElement("video");
-        vAnalyze.srcObject = sourceStream; vAnalyze.play();
-        const aCanvas = document.createElement("canvas");
-        const aCtx = aCanvas.getContext("2d", {willReadFrequently: true});
-        aCanvas.width = 50; aCanvas.height = 50;
-
-        setInterval(() => {
-            if (vAnalyze.readyState >= 2) {
-                aCtx.drawImage(vAnalyze, 0, 0, 50, 50);
-                const data = aCtx.getImageData(0, 0, 50, 50).data;
-                let total = 0, varSum = 0;
-                for (let i = 0; i < data.length; i += 4) total += (data[i] + data[i+1] + data[i+2]) / 3;
-                const avg = total / (data.length/4);
-                for (let i = 0; i < data.length; i += 4) varSum += Math.pow(((data[i] + data[i+1] + data[i+2]) / 3) - avg, 2);
-                const variance = Math.round(varSum / (data.length/4));
-                document.getElementById('live-variance').innerText = variance;
-
-                const triggeredNow = variance > currentThreshold;
-                if (triggeredNow !== isTriggered) {
-                    if (triggeredNow === true) playTabChirp();
-                    isTriggered = triggeredNow;
-                    document.getElementById('canvasContainer').classList.toggle('active-border', isTriggered);
-                }
-            }
-        }, 200); 
+        up(document);
+        if (pipWindow) up(pipWindow.document);
     }
 
     function drawMain() {
         if (hlsVideo.readyState >= 2) {
             const vW = hlsVideo.videoWidth, vH = hlsVideo.videoHeight;
-            const t = document.getElementById('t_num').value / 100, b = document.getElementById('b_num').value / 100;
-            const l = document.getElementById('l_num').value / 100, r = document.getElementById('r_num').value / 100;
-            canvas.width = Math.max(vW * (1 - l - r), 1);
-            canvas.height = Math.max(vH * (1 - t - b), 1);
-            ctx.filter = isTriggered ? 'none' : 'grayscale(100%) brightness(0.7)';
-            ctx.drawImage(hlsVideo, vW*l, vH*t, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+            let sx, sy, sw, sh;
 
-            const cropData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            if (fullFrame) {
+                sx = 0; sy = 0; sw = vW; sh = vH;
+            } else {
+                const t = document.getElementById('t_num').value / 100, b = document.getElementById('b_num').value / 100;
+                const l = document.getElementById('l_num').value / 100, r = document.getElementById('r_num').value / 100;
+                sx = vW * l; sy = vH * t; sw = Math.max(vW * (1 - l - r), 1); sh = Math.max(vH * (1 - t - b), 1);
+            }
+
+            canvas.width = sw; canvas.height = sh;
+            
+            // Apply Filters
+            let filters = [];
+            if (!isTriggered && !fullFrame) filters.push('grayscale(100%) brightness(0.7)');
+            if (fullFrame) {
+                if (invertOn) filters.push('invert(1)');
+                if (grayOn) filters.push('grayscale(1)');
+            }
+            ctx.filter = filters.length ? filters.join(' ') : 'none';
+            
+            ctx.drawImage(hlsVideo, sx, sy, sw, sh, 0, 0, sw, sh);
+
+            // Analysis Logic (always runs on the current view)
+            const cropData = ctx.getImageData(0, 0, sw, sh).data;
             let cTotal = 0, cVarSum = 0;
             for (let i = 0; i < cropData.length; i += 4) cTotal += (cropData[i] + cropData[i+1] + cropData[i+2]) / 3;
             const cAvg = cTotal / (cropData.length/4);
             for (let i = 0; i < cropData.length; i += 4) cVarSum += Math.pow(((cropData[i] + cropData[i+1] + cropData[i+2]) / 3) - cAvg, 2);
-            const currentCropVariance = Math.round(cVarSum / (cropData.length/4));
-            const delta = Math.abs(currentCropVariance - lastCropVariance);
+            const currentCropVar = Math.round(cVarSum / (cropData.length/4));
+            const delta = Math.abs(currentCropVar - lastCropVariance);
             document.getElementById('crop-delta-display').innerText = delta;
-            
-            if (delta > audioDeltaThreshold) playDigitalBell();
-            lastCropVariance = currentCropVariance;
+            if (delta > audioDeltaThreshold && !fullFrame) playDigitalBell();
+            lastCropVariance = currentCropVar;
         }
         requestAnimationFrame(drawMain);
     }
     hlsVideo.addEventListener('play', drawMain);
 
+    // Reuse previous logic for audio/capture...
+    function playDigitalBell(isTest=false) { if(!isTest && (bellMuted || audioCooldown)) return; const vol = parseFloat(document.getElementById('volBell').value); if(vol <= 0) return; if(!audioCtx) audioCtx = new AudioContext(); const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain(); osc.frequency.setValueAtTime(523, audioCtx.currentTime); gain.gain.setValueAtTime(vol, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 1.0); osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 1.0); if(!isTest) { audioCooldown = true; setTimeout(() => audioCooldown = false, 2000); } }
+    function playTabChirp(isTest=false) { if(!isTest && tabMuted) return; const vol = parseFloat(document.getElementById('volChirp').value); if(vol <= 0) return; if(!audioCtx) audioCtx = new AudioContext(); const now = audioCtx.currentTime; const blip = (f,s,d) => { const o = audioCtx.createOscillator(); const g = audioCtx.createGain(); o.frequency.setValueAtTime(f, now+s); g.gain.setValueAtTime(vol, now+s); g.gain.exponentialRampToValueAtTime(0.0001, now+s+d); o.connect(g); g.connect(audioCtx.destination); o.start(now+s); o.stop(now+s+d); }; blip(2000,0,0.05); blip(2500,0.1,0.05); blip(3000,0.2,0.2); }
+    async function startCapture() { sourceStream = await navigator.mediaDevices.getDisplayMedia({video:true}); startAnalysis(); }
+    function updateThreshold(v) { currentThreshold = parseInt(v); }
+    function updateAudioDelta(v) { audioDeltaThreshold = parseInt(v); }
+    function startAnalysis() { const vA = document.createElement("video"); vA.srcObject = sourceStream; vA.play(); const aC = document.createElement("canvas"); const aX = aC.getContext("2d"); aC.width=50; aC.height=50; setInterval(() => { if(vA.readyState >= 2) { aX.drawImage(vA,0,0,50,50); const d = aX.getImageData(0,0,50,50).data; let t=0, vS=0; for(let i=0; i<d.length; i+=4) t+=(d[i]+d[i+1]+d[i+2])/3; const avg=t/(d.length/4); for(let i=0; i<d.length; i+=4) vS+=Math.pow(((d[i]+d[i+1]+d[i+2])/3)-avg, 2); const v = Math.round(vS/(d.length/4)); document.getElementById('live-variance').innerText = v; const trig = v > currentThreshold; if(trig !== isTriggered) { if(trig) playTabChirp(); isTriggered = trig; document.getElementById('canvasContainer').classList.toggle('active-border', isTriggered); } } }, 200); }
+
     async function openPip() {
-        if (!window.documentPictureInPicture) return alert("PiP not supported");
         pipWindow = await window.documentPictureInPicture.requestWindow({ width: canvas.width, height: canvas.height });
-        
         const container = document.getElementById('canvasContainer');
         const style = pipWindow.document.createElement('style');
         style.textContent = `
-            body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+            body, html { margin: 0; padding: 0; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
             #canvasContainer { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; position: relative; }
-            canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
-            .icon-btn { position: absolute; width: 22px; height: 22px; background: rgba(0,0,0,0.6); color: white; font-size: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; font-family: sans-serif; border-radius: 4px; }
-            #muteBell { bottom: 4px; left: 4px; }
-            #muteTab { bottom: 4px; right: 4px; }
-            #radioToggle { top: 4px; left: 4px; }
+            canvas { max-width: 100%; max-height: 100%; object-fit: contain; border: 2px solid #333; }
+            .active-border canvas { border: 4px solid #ff0000 !important; }
+            .icon-btn { position: absolute; width: 24px; height: 24px; background: rgba(0,0,0,0.6); color: white; font-size: 13px; display: flex; align-items: center; justify-content: center; border: none; border-radius: 4px; cursor: pointer; }
+            .txt-btn { position: absolute; top: 6px; height: 20px; background: rgba(0,0,0,0.6); color: white; font-size: 9px; padding: 0 6px; border-radius: 4px; cursor: pointer; border: none; z-index: 101; font-weight: bold; }
+            #radioToggle { top: 6px; left: 6px; }
+            #fullFrameToggle { top: 6px; right: 6px; }
+            #muteBell { bottom: 6px; left: 6px; }
+            #muteTab { bottom: 6px; right: 6px; }
+            #btnInvert { left: 40px; }
+            #btnGray { right: 40px; }
             .is-muted { color: #ff4444 !important; }
-            .is-active { color: #00ff41 !important; border: 1px solid rgba(0,255,65,0.3); }
+            .is-active { color: #00ff41 !important; box-shadow: 0 0 8px rgba(0,255,65,0.4); }
         `;
         pipWindow.document.head.appendChild(style);
         pipWindow.document.body.appendChild(container);
-
         setupButtonEvents(pipWindow.document);
-
-        pipWindow.addEventListener("pagehide", () => {
-            document.body.appendChild(container);
-            setupButtonEvents(document);
-            pipWindow = null;
-        });
+        pipWindow.addEventListener("pagehide", () => { document.body.appendChild(container); setupButtonEvents(document); pipWindow = null; });
     }
 </script>
 </body>
