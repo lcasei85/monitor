@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pro Monitor - Final Fix</title>
+    <style>
+        body { font-family: sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        .card { background: #1e1e1e; padding: 25px; border-radius: 15px; width: 450px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        input, select { width: 100%; padding: 8px; margin: 8px 0; border-radius: 5px; border: none; background: #333; color: white; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 5px; border: none; cursor: pointer; font-weight: bold; }
+        .btn-play { background: #bb86fc; color: black; }
+        .btn-pause { background: #444; color: white; margin-top: 5px; }
+        .btn-start { background: #03dac6; color: black; margin-top: 15px; }
+        .btn-test { background: #444; color: #03dac6; width: auto; padding: 5px 10px; font-size: 11px; float: right; }
+
+        .pomodoro { margin-top: 20px; background: #252525; padding: 15px; border-radius: 10px; border: 1px solid #444; }
+        .pomodoro .time-row { font-family: monospace; font-size: 18px; color: #03dac6; text-align: center; }
+
+        #alert-box { width: 100%; height: 100%; background: #ffffff; transition: background 0.1s; }
+        .trigger-active { background: #ff0000 !important; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2 style="margin-top:0;">Tab Monitor Pro</h2>
+    
+    <!-- Existing Player Controls -->
+
+    <div class="pomodoro">
+        <h3>Pomodoro Timer</h3>
+        <div class="time-row">
+            <span id="pomodoroTimer">25:00</span>
+        </div>
+        <input type="number" id="pomodoroCount" value="0" min="0" style="width: 60px; margin: 10px auto;" />
+        <div style="display: flex; justify-content: space-between;">
+            <button class="btn-start" id="startPomodoroBtn" onclick="togglePomodoro()">Start Pomodoro</button>
+            <button class="btn-pause" id="stopPomodoroBtn" onclick="stopPomodoro()">Stop Pomodoro</button>
+        </div>
+    </div>
+
+    <!-- Existing Alert and Audio Settings -->
+
+</div>
+
+<audio id="player" loop crossorigin="anonymous"></audio>
+<div style="display:none;"><div id="alert-box"></div></div>
+
+<script>
+    const audio = document.getElementById('player');
+    const alertBox = document.getElementById('alert-box');
+    const statusText = document.getElementById('status');
+    const currentTimeSpan = document.getElementById('currentTime');
+    const totalTimeSpan = document.getElementById('totalTime');
+    const pauseBtn = document.getElementById('pauseBtn');
+    
+    let pomodoroTimerInterval;
+    let pomodoroSeconds = 25 * 60;  // 25 minutes
+    let isPomodoroRunning = false;
+    let pomodoroCounter = 0;
+
+    function formatTime(seconds) {
+        if (isNaN(seconds) || seconds === Infinity) return "00:00:00";
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = Math.floor(seconds % 60);
+        return [h, m, s].map(v => v.toString().padStart(2, '0')).join(':');
+    }
+
+    // Pomodoro Timer Logic
+    function updatePomodoroTimer() {
+        const pomodoroDisplay = document.getElementById('pomodoroTimer');
+        pomodoroDisplay.innerText = formatTime(pomodoroSeconds);
+
+        if (pomodoroSeconds <= 0) {
+            clearInterval(pomodoroTimerInterval);
+            alert('Pomodoro Session Complete!');
+            pomodoroCounter++;
+            document.getElementById('pomodoroCount').value = pomodoroCounter;
+            isPomodoroRunning = false;
+            document.getElementById('startPomodoroBtn').innerText = 'Start Pomodoro';
+        }
+    }
+
+    function togglePomodoro() {
+        if (isPomodoroRunning) {
+            // Pause Pomodoro
+            clearInterval(pomodoroTimerInterval);
+            document.getElementById('startPomodoroBtn').innerText = 'Resume Pomodoro';
+        } else {
+            // Start Pomodoro
+            pomodoroSeconds = 25 * 60; // Reset to 25 minutes for a fresh session
+            pomodoroTimerInterval = setInterval(() => {
+                pomodoroSeconds--;
+                updatePomodoroTimer();
+            }, 1000);
+            document.getElementById('startPomodoroBtn').innerText = 'Pause Pomodoro';
+        }
+        isPomodoroRunning = !isPomodoroRunning;
+    }
+
+    function stopPomodoro() {
+        // Stop Pomodoro completely
+        clearInterval(pomodoroTimerInterval);
+        pomodoroSeconds = 25 * 60;
+        updatePomodoroTimer();
+        isPomodoroRunning = false;
+        document.getElementById('startPomodoroBtn').innerText = 'Start Pomodoro';
+    }
+
+    // --- Audio Logic ---
+    function loadMusic() {
+        const url = document.getElementById('audioUrl').value;
+        if(!url) return;
+        audio.src = url;
+        audio.volume = document.getElementById('musicVol').value;
+        audio.play();
+        pauseBtn.innerText = "Pause";
+    }
+
+    function togglePause() {
+        if (audio.paused) {
+            audio.play();
+            pauseBtn.innerText = "Pause";
+        } else {
+            audio.pause();
+            pauseBtn.innerText = "Resume";
+        }
+    }
+
+    function updateMasterVolume() {
+        // Only update volume if an alert is NOT currently active
+        if (!isAlerting) {
+            audio.volume = document.getElementById('musicVol').value;
+        }
+    }
+
+    audio.ontimeupdate = () => {
+        if (!isNaN(audio.duration)) {
+            seekSlider.value = (audio.currentTime / audio.duration) * 100;
+            currentTimeSpan.innerText = formatTime(audio.currentTime);
+        }
+    };
+
+    audio.onloadedmetadata = () => { totalTimeSpan.innerText = formatTime(audio.duration); };
+
+    seekSlider.oninput = () => {
+        if (!isNaN(audio.duration)) audio.currentTime = (seekSlider.value / 100) * audio.duration;
+    };
+
+    function fadeVolumeTo(target) {
+        clearInterval(fadeInterval);
+        const duration = parseFloat(document.getElementById('fadeSpeed').value);
+        if (duration <= 0) { audio.volume = target; return; }
+
+        const startVol = audio.volume;
+        const steps = 30;
+        const intervalTime = (duration * 1000) / steps;
+        let currentStep = 0;
+
+        fadeInterval = setInterval(() => {
+            currentStep++;
+            audio.volume = startVol + ((target - startVol) * (currentStep / steps));
+            if (currentStep >= steps) { audio.volume = target; clearInterval(fadeInterval); }
+        }, intervalTime);
+    }
+
+    function playAlertTone() {
+        const ctxA = new (window.AudioContext || window.webkitAudioContext)();
+        const mode = document.getElementById('soundType').value;
+        const playTone = (freq, start, duration, type='sine') => {
+            const osc = ctxA.createOscillator();
+            const g = ctxA.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, ctxA.currentTime + start);
+            g.gain.setValueAtTime(0.5, ctxA.currentTime + start);
+            g.gain.exponentialRampToValueAtTime(0.0001, ctxA.currentTime + start + duration);
+            osc.connect(g); g.connect(ctxA.destination);
+            osc.start(ctxA.currentTime + start); osc.stop(ctxA.currentTime + start + duration);
+        };
+
+        switch(mode) {
+            case 'double': playTone(1000, 0, 0.2); playTone(1000, 0.3, 0.2); break;
+            case 'chime': playTone(880, 0, 0.4, 'triangle'); playTone(1320, 0.1, 0.4, 'triangle'); break;
+            case 'urgent': [800, 800, 800].forEach((f, i) => playTone(f, i*0.2, 0.
