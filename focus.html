@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Red / Green Toggle with PiP</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --card: #1a1f29;
+      --text: #f3f4f6;
+      --muted: #a1a1aa;
+      --border: rgba(255,255,255,0.08);
+      --shadow: 0 20px 50px rgba(0,0,0,0.35);
+      --red: #e5484d;
+      --green: #30a46c;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: Inter, Arial, sans-serif;
+      background: radial-gradient(circle at top, #1b2330 0%, var(--bg) 55%);
+      color: var(--text);
+      padding: 24px;
+    }
+
+    .card {
+      width: min(520px, 100%);
+      background: rgba(26,31,41,0.92);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      padding: 28px;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 1.6rem;
+      line-height: 1.2;
+    }
+
+    p {
+      margin: 0 0 22px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .status-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 22px 0 26px;
+    }
+
+    .status {
+      width: 180px;
+      height: 180px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      font-size: 1.6rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      border: 8px solid rgba(255,255,255,0.08);
+      transition: transform 0.2s ease, background-color 0.25s ease, box-shadow 0.25s ease;
+      user-select: none;
+    }
+
+    .status.red {
+      background: var(--red);
+      box-shadow: 0 0 0 10px rgba(229,72,77,0.16);
+    }
+
+    .status.green {
+      background: var(--green);
+      box-shadow: 0 0 0 10px rgba(48,164,108,0.16);
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    button {
+      width: 100%;
+      border: 0;
+      border-radius: 16px;
+      padding: 14px 16px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.2s ease, background 0.2s ease;
+    }
+
+    button:hover { transform: translateY(-1px); }
+    button:active { transform: translateY(0); }
+
+    .toggle-btn {
+      background: linear-gradient(135deg, #2b3240, #202632);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .pip-btn {
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      color: white;
+    }
+
+    .pip-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .small-note {
+      margin-top: 14px;
+      font-size: 0.9rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .inline-code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 2px 6px;
+      border-radius: 8px;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Red / Green Toggle</h1>
+    <p>Open a floating Picture-in-Picture window with a clickable color background, editable text directly on it, and a compact 25-minute Pomodoro timer.</p>
+
+    <div class="status-wrap">
+      <div id="status" class="status red" aria-live="polite">RED</div>
+    </div>
+
+    <div class="controls">
+      <button id="toggleBtn" class="toggle-btn">Switch to Green</button>
+      <button id="pipBtn" class="pip-btn">Open in Picture-in-Picture</button>
+    </div>
+
+    <div class="small-note" id="supportNote">
+      PiP support check running…
+    </div>
+  </main>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const toggleBtn = document.getElementById('toggleBtn');
+    const pipBtn = document.getElementById('pipBtn');
+    const supportNote = document.getElementById('supportNote');
+
+    let isGreen = false;
+    let pipWindow = null;
+    let noteText = 'Focus';
+    let pomodoroSeconds = 25 * 60;
+    let pomodoroRunning = false;
+    let pomodoroInterval = null;
+
+    function getMode() {
+      return isGreen ? 'GREEN' : 'RED';
+    }
+
+    function formatTime(totalSeconds) {
+      const mins = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+      const secs = (totalSeconds % 60).toString().padStart(2, '0');
+      return `${mins}:${secs}`;
+    }
+
+    function toggleMode() {
+      isGreen = !isGreen;
+      render();
+    }
+
+    function applyModeToElement(el) {
+      el.textContent = getMode();
+      el.classList.remove('red', 'green');
+      el.classList.add(isGreen ? 'green' : 'red');
+    }
+
+    function updatePomodoroState() {
+      if (pomodoroInterval) clearInterval(pomodoroInterval);
+
+      if (pomodoroRunning) {
+        pomodoroInterval = setInterval(() => {
+          if (pomodoroSeconds > 0) {
+            pomodoroSeconds -= 1;
+            render();
+          } else {
+            pomodoroRunning = false;
+            clearInterval(pomodoroInterval);
+            pomodoroInterval = null;
+            render();
+          }
+        }, 1000);
+      }
+    }
+
+    function togglePomodoro() {
+      pomodoroRunning = !pomodoroRunning;
+      updatePomodoroState();
+      render();
+    }
+
+    function resetPomodoro() {
+      pomodoroRunning = false;
+      pomodoroSeconds = 25 * 60;
+      updatePomodoroState();
+      render();
+    }
+
+    function syncPiPContent() {
+      if (!pipWindow) return;
+      const doc = pipWindow.document;
+      const pipShell = doc.getElementById('pip-shell');
+      const pipText = doc.getElementById('pip-text');
+      const pipTimer = doc.getElementById('pip-timer');
+      const pipStart = doc.getElementById('pip-pomodoro-toggle');
+
+      if (pipShell) {
+        pipShell.className = `pip-shell ${isGreen ? 'green' : 'red'}`;
+        pipShell.setAttribute('aria-label', `Current mode: ${getMode()}. Click background to switch.`);
+      }
+
+      if (pipText && doc.activeElement !== pipText) {
+        pipText.textContent = noteText;
+      }
+
+      if (pipTimer) {
+        pipTimer.textContent = formatTime(pomodoroSeconds);
+      }
+
+      if (pipStart) {
+        pipStart.textContent = pomodoroRunning ? '❚❚' : '▶';
+        pipStart.setAttribute('aria-label', pomodoroRunning ? 'Pause timer' : 'Start timer');
+      }
+    }
+
+    function render() {
+      applyModeToElement(statusEl);
+      toggleBtn.textContent = isGreen ? 'Switch to Red' : 'Switch to Green';
+      syncPiPContent();
+    }
+
+    toggleBtn.addEventListener('click', toggleMode);
+
+    function updateSupportMessage() {
+      const hasDocumentPiP = 'documentPictureInPicture' in window;
+      if (hasDocumentPiP) {
+        supportNote.innerHTML = 'Your browser appears to support the <span class="inline-code">Document Picture-in-Picture API</span>.';
+        pipBtn.disabled = false;
+      } else {
+        supportNote.innerHTML = 'This browser does not appear to support the <span class="inline-code">Document Picture-in-Picture API</span>. Use a recent Chromium-based browser to test it.';
+        pipBtn.disabled = true;
+      }
+    }
+
+    function mountPiPEvents(doc) {
+      doc.getElementById('pip-shell')?.addEventListener('click', (e) => {
+        if (e.target.closest('.pip-controls') || e.target.closest('#pip-text')) return;
+        toggleMode();
+      });
+
+      doc.getElementById('pip-pomodoro-toggle')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePomodoro();
+      });
+
+      doc.getElementById('pip-pomodoro-reset')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        resetPomodoro();
+      });
+
+      doc.getElementById('pip-color-toggle')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleMode();
+      });
+
+      doc.getElementById('pip-text')?.addEventListener('input', (e) => {
+        noteText = e.target.textContent;
+      });
+    }
+
+    async function openDocumentPiP() {
+      try {
+        if (!('documentPictureInPicture' in window)) {
+          alert('Document Picture-in-Picture API is not supported in this browser.');
+          return;
+        }
+
+        if (pipWindow && !pipWindow.closed) {
+          pipWindow.focus();
+          return;
+        }
+
+        pipWindow = await window.documentPictureInPicture.requestWindow({
+          width: 220,
+          height: 120
+        });
+
+        const pipDoc = pipWindow.document;
+        pipDoc.head.innerHTML = `
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Toggle PiP</title>
+          <style>
+            :root {
+              --red: #e5484d;
+              --green: #30a46c;
+              --text: #ffffff;
+              --chip: rgba(10,10,12,0.42);
+              --chipBorder: rgba(255,255,255,0.22);
+              --shadow: rgba(0,0,0,0.18);
+            }
+            * { box-sizing: border-box; }
+            html, body {
+              margin: 0;
+              width: 100%;
+              height: 100%;
+              overflow: hidden;
+              font-family: Inter, Arial, sans-serif;
+              background: transparent;
+            }
+            body {
+              color: var(--text);
+            }
+            .pip-shell {
+              position: relative;
+              width: 100%;
+              height: 100%;
+              overflow: hidden;
+              user-select: none;
+            }
+            .pip-shell.red {
+              background: var(--red);
+            }
+            .pip-shell.green {
+              background: var(--green);
+            }
+            .pip-text {
+              position: absolute;
+              inset: 8px 8px 34px 8px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              text-align: center;
+              font-size: 15px;
+              font-weight: 600;
+              line-height: 1.2;
+              color: rgba(255,255,255,0.98);
+              text-shadow: 0 1px 2px var(--shadow);
+              outline: none;
+              overflow: hidden;
+              padding: 2px 4px;
+              cursor: text;
+            }
+            .pip-text:empty::before {
+              content: 'Write here';
+              opacity: 0.72;
+            }
+            .pip-controls {
+              position: absolute;
+              left: 4px;
+              right: 4px;
+              bottom: 4px;
+              display: grid;
+              grid-template-columns: 1fr auto auto auto;
+              align-items: center;
+              gap: 4px;
+            }
+            .pip-timer {
+              min-width: 0;
+              padding: 4px 6px;
+              border-radius: 999px;
+              background: var(--chip);
+              border: 1px solid var(--chipBorder);
+              font-size: 14px;
+              font-weight: 700;
+              line-height: 1;
+              letter-spacing: 0.03em;
+              white-space: nowrap;
+              text-align: center;
+              backdrop-filter: blur(4px);
+            }
+            .pip-btn {
+              min-width: 24px;
+              height: 24px;
+              padding: 0 7px;
+              border: 1px solid var(--chipBorder);
+              background: var(--chip);
+              color: var(--text);
+              border-radius: 999px;
+              display: grid;
+              place-items: center;
+              font-size: 11px;
+              font-weight: 700;
+              line-height: 1;
+              cursor: pointer;
+              backdrop-filter: blur(4px);
+            }
+            .pip-btn:active {
+              transform: scale(0.98);
+            }
+            @media (max-width: 180px), (max-height: 110px) {
+              .pip-text {
+                inset: 6px 6px 30px 6px;
+                font-size: 13px;
+              }
+              .pip-controls {
+                left: 3px;
+                right: 3px;
+                bottom: 3px;
+                gap: 3px;
+              }
+              .pip-timer {
+                padding: 3px 5px;
+                font-size: 12px;
+              }
+              .pip-btn {
+                min-width: 22px;
+                height: 22px;
+                padding: 0 6px;
+                font-size: 10px;
+              }
+            }
+          </style>
+        `;
+
+        pipDoc.body.innerHTML = `
+          <div id="pip-shell" class="pip-shell ${isGreen ? 'green' : 'red'}" aria-label="Current mode: ${getMode()}. Click background to switch.">
+            <div id="pip-text" class="pip-text" contenteditable="true" spellcheck="false">${noteText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+            <div class="pip-controls">
+              <div id="pip-timer" class="pip-timer">${formatTime(pomodoroSeconds)}</div>
+              <button id="pip-pomodoro-toggle" class="pip-btn" aria-label="${pomodoroRunning ? 'Pause timer' : 'Start timer'}">${pomodoroRunning ? '❚❚' : '▶'}</button>
+              <button id="pip-pomodoro-reset" class="pip-btn" aria-label="Reset timer">↺</button>
+              <button id="pip-color-toggle" class="pip-btn" aria-label="Switch color">⇄</button>
+            </div>
+          </div>
+        `;
+
+        mountPiPEvents(pipDoc);
+
+        pipWindow.addEventListener('pagehide', () => {
+          pipWindow = null;
+        });
+
+        syncPiPContent();
+      } catch (error) {
+        console.error(error);
+        alert('Could not open Picture-in-Picture. Check browser support and permissions.');
+      }
+    }
+
+    pipBtn.addEventListener('click', openDocumentPiP);
+
+    updateSupportMessage();
+    updatePomodoroState();
+    render();
+  </script>
+</body>
+</html>
