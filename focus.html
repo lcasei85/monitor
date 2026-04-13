@@ -15,6 +15,7 @@
       --red: #e5484d;
       --green: #30a46c;
       --panel: rgba(255,255,255,0.05);
+      --blue: #3b82f6;
     }
 
     * { box-sizing: border-box; }
@@ -115,7 +116,8 @@
       color: white;
     }
 
-    .pip-btn:disabled {
+    .pip-btn:disabled,
+    .send-btn:disabled {
       opacity: 0.45;
       cursor: not-allowed;
       transform: none;
@@ -253,6 +255,36 @@
       color: var(--muted);
     }
 
+    .bucket-actions {
+      margin-top: 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .send-btn {
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 10px 12px;
+      font-size: 0.92rem;
+      border-radius: 14px;
+    }
+
+    .bucket-note {
+      font-size: 0.84rem;
+      color: var(--muted);
+      line-height: 1.4;
+      min-height: 1.2em;
+    }
+
+    .bucket-note.success {
+      color: #93c5fd;
+    }
+
+    .bucket-note.error {
+      color: #fda4af;
+    }
+
     .small-note {
       margin-top: 14px;
       font-size: 0.9rem;
@@ -329,6 +361,11 @@
           <div class="stat-label">Red mode time</div>
           <div id="redTimeValue" class="stat-value">00:00:00</div>
           <div id="redPomodorosValue" class="stat-subvalue">Pomodoros: 0.00</div>
+
+          <div class="bucket-actions">
+            <button id="sendRedBucketBtn" class="send-btn" disabled>Send & Empty Red Bucket</button>
+            <div id="sendRedBucketStatus" class="bucket-note"></div>
+          </div>
         </div>
 
         <div class="stat-box green-accent">
@@ -345,6 +382,9 @@
   </main>
 
   <script>
+    const API_BASE = 'https://mov2st-api.netanelorbach.workers.dev';
+    const EVENT_SOURCE = 'chrome';
+
     const statusEl = document.getElementById('status');
     const toggleBtn = document.getElementById('toggleBtn');
     const pipBtn = document.getElementById('pipBtn');
@@ -362,6 +402,9 @@
     const redPomodorosValue = document.getElementById('redPomodorosValue');
     const greenPomodorosValue = document.getElementById('greenPomodorosValue');
 
+    const sendRedBucketBtn = document.getElementById('sendRedBucketBtn');
+    const sendRedBucketStatus = document.getElementById('sendRedBucketStatus');
+
     let isGreen = false;
     let pipWindow = null;
     let noteText = 'Focus';
@@ -370,6 +413,7 @@
     let pomodoroSeconds = pomodoroDurationSeconds;
     let pomodoroRunning = false;
     let tickInterval = null;
+    let sendingRedBucket = false;
 
     const modeStats = {
       red: 0,
@@ -399,6 +443,10 @@
 
     function calculatePomodoros(seconds) {
       return (seconds / pomodoroDurationSeconds).toFixed(2);
+    }
+
+    function getRedBucketMinutes() {
+      return Math.round((modeStats.red / 60) * 1000) / 1000;
     }
 
     function applyModeToElement(el) {
@@ -472,6 +520,11 @@
       greenTimeValue.textContent = formatLongTime(modeStats.green);
       redPomodorosValue.textContent = `Pomodoros: ${calculatePomodoros(modeStats.red)}`;
       greenPomodorosValue.textContent = `Pomodoros: ${calculatePomodoros(modeStats.green)}`;
+
+      sendRedBucketBtn.disabled = sendingRedBucket || modeStats.red <= 0;
+      sendRedBucketBtn.textContent = sendingRedBucket
+        ? 'Sending...'
+        : 'Send & Empty Red Bucket';
     }
 
     function syncPiPContent() {
@@ -516,10 +569,63 @@
       syncPiPContent();
     }
 
+    async function sendRedBucketToMov2ST() {
+      if (sendingRedBucket || modeStats.red <= 0) return;
+
+      const redSeconds = modeStats.red;
+      const redMinutes = getRedBucketMinutes();
+
+      sendingRedBucket = true;
+      sendRedBucketStatus.textContent = '';
+      sendRedBucketStatus.className = 'bucket-note';
+      render();
+
+      try {
+        const payload = {
+          type: 'computer',
+          source: EVENT_SOURCE,
+          duration: redMinutes,
+          metadata: {
+            tracked_by: 'web_toggle',
+            bucket: 'red',
+            note: noteText,
+            seconds: redSeconds,
+            minutes: redMinutes,
+            timer_length_minutes: pomodoroDurationSeconds / 60,
+          },
+        };
+
+        const response = await fetch(`${API_BASE}/events`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to send red bucket.');
+        }
+
+        modeStats.red = 0;
+        sendRedBucketStatus.textContent = `Sent ${redMinutes}m to Mov2ST and emptied red bucket.`;
+        sendRedBucketStatus.className = 'bucket-note success';
+      } catch (error) {
+        sendRedBucketStatus.textContent = error.message || 'Failed to send red bucket.';
+        sendRedBucketStatus.className = 'bucket-note error';
+      } finally {
+        sendingRedBucket = false;
+        render();
+      }
+    }
+
     toggleBtn.addEventListener('click', toggleMode);
     mainPomodoroToggle.addEventListener('click', togglePomodoro);
     mainPomodoroReset.addEventListener('click', resetPomodoro);
     applyMinutesBtn.addEventListener('click', setTimerDurationFromInput);
+    sendRedBucketBtn.addEventListener('click', sendRedBucketToMov2ST);
 
     minutesInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') setTimerDurationFromInput();
